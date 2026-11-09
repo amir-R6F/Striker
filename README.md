@@ -310,7 +310,7 @@ first Rust compile takes several minutes; later builds are incremental.
 Useful scripts:
 
 ```powershell
-npm run dev        # Vite only (browser preview, no SQLite/Tauri APIs)
+npm run dev        # browser mode: sql.js database, no Rust required
 npm run typecheck  # tsc --noEmit
 npm test           # Vitest: pure logic + SQLite integration
 npm run test:db    # only the node:sqlite migration/integration suite
@@ -327,6 +327,36 @@ backup/restore — no mocks and no Tauri runtime required.
 Manual Windows checks (tray, hotkey, transparency, migrations, evidence folder
 permissions, notification prompts) live in
 [docs/WINDOWS_CHECKLIST.md](docs/WINDOWS_CHECKLIST.md).
+
+### Browser development mode
+
+`npm run dev` opens the full widget in a normal browser at
+`http://localhost:1420` without Rust or Tauri. Vite aliases the Tauri modules to
+browser mocks whenever `TAURI_ENV_PLATFORM` is unset, so logging, dashboard,
+search, skill trees, milestones, flashcards, reviews and exports all run against
+a real SQLite database compiled to WebAssembly (`sql.js`).
+
+`npm run tauri:dev` ignores the mocks entirely and launches the real desktop app
+with the native plugins. The same split applies to builds: `npm run build`
+produces the browser bundle, while `tauri build` sets `TAURI_ENV_PLATFORM` and
+keeps the real `@tauri-apps` packages.
+
+Browser data lives in `localStorage` under `striker-browser-db`; attached
+evidence bytes live in IndexedDB (`striker-browser-evidence`). Settings → Data has
+a **Reset browser DB** button (browser mode only) that clears the database and
+reloads. The browser mock is a development tool: clearing site data or using a
+different browser profile starts from onboarding again.
+
+AI and Ollama calls go through `window.fetch` in browser mode, so the endpoint
+must allow CORS from `http://localhost:1420`. The native app is not limited by
+CORS.
+
+Migrations are snapshotted from `src-tauri/src/lib.rs` into
+`src/lib/browser/migrations.generated.ts`. After changing Rust migrations, run:
+
+```powershell
+node scripts/extract-migrations.mjs
+```
 
 ## Building the Windows installer
 

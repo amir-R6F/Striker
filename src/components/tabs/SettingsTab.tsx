@@ -777,6 +777,28 @@ export function SettingsTab() {
               </p>
             ) : null}
           </div>
+
+          {__STRIKER_BROWSER__ ? (
+            <div className="space-y-1.5 border-t border-line pt-2.5">
+              <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">
+                Browser preview
+              </p>
+              <p className="text-[10px] leading-relaxed text-muted">
+                This web build keeps its database in localStorage. Resetting
+                clears entries, goals and settings in this browser only.
+              </p>
+              <Button
+                variant="subtle"
+                className="h-9 w-full justify-start px-3"
+                onClick={() => {
+                  window.localStorage.removeItem("striker-browser-db");
+                  window.location.reload();
+                }}
+              >
+                Reset browser DB
+              </Button>
+            </div>
+          ) : null}
         </Card>
       </section>
 
