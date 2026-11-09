@@ -1,11 +1,13 @@
 import { useState, type FormEvent } from "react";
 import { createGoal } from "../lib/db";
 import { todayKey } from "../lib/dates";
+import { SETTING_KEYS } from "../lib/settings";
 import { useAppStore } from "../store/useAppStore";
 import { Button, Card, Field, TextArea, TextInput } from "./ui";
 
 export function GoalSetup() {
   const setGoal = useAppStore((state) => state.setGoal);
+  const setSetting = useAppStore((state) => state.setSetting);
   const bumpRevision = useAppStore((state) => state.bumpRevision);
   const notify = useAppStore((state) => state.notify);
 
@@ -35,6 +37,7 @@ export function GoalSetup() {
         successCriteria,
       });
       setGoal(goal);
+      await setSetting(SETTING_KEYS.activeGoal, String(goal.id));
       bumpRevision();
       notify("Goal created");
     } catch (error) {
@@ -53,8 +56,8 @@ export function GoalSetup() {
         </p>
         <h2 className="mt-0.5 text-[15px] font-semibold">What are you learning?</h2>
         <p className="mt-1 text-[11.5px] leading-relaxed text-muted">
-          One active goal keeps the widget honest. You can track daily sessions
-          against it right away.
+          Goals keep your log focused. You can switch between them from the
+          header at any time.
         </p>
       </div>
 

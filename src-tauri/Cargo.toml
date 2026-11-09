@@ -20,6 +20,9 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-http = "2"
+chrono = "0.4"
+rusqlite = { version = "0.32", features = ["bundled", "backup"] }
+tokio = { version = "1", features = ["time"] }
 
 [profile.release]
 codegen-units = 1

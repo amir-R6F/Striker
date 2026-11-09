@@ -6,6 +6,9 @@ use tauri::{
 use tauri_plugin_global_shortcut::ShortcutState;
 use tauri_plugin_sql::{Migration, MigrationKind};
 
+mod db;
+mod scheduler;
+
 const MAIN_WINDOW: &str = "main";
 const TRAY_ID: &str = "striker-tray";
 const HOTKEY: &str = "ctrl+shift+s";
@@ -422,6 +425,37 @@ fn migrations() -> Vec<Migration> {
                   WHERE parent_id IS NULL
                     AND EXISTS (SELECT 1 FROM skills s WHERE s.id = skill_nodes.id AND s.parent_id IS NOT NULL);",
         },
+        Migration {
+            version: 41,
+            description: "add_entry_evidence_position",
+            kind: MigrationKind::Up,
+            sql: "ALTER TABLE entry_evidence ADD COLUMN position INTEGER NOT NULL DEFAULT 0;",
+        },
+        Migration {
+            version: 42,
+            description: "backfill_entry_evidence_position",
+            kind: MigrationKind::Up,
+            sql: "UPDATE entry_evidence SET position = id WHERE position = 0;",
+        },
+        Migration {
+            version: 43,
+            description: "add_goal_archived_at",
+            kind: MigrationKind::Up,
+            sql: "ALTER TABLE goals ADD COLUMN archived_at TEXT;",
+        },
+        Migration {
+            version: 44,
+            description: "seed_default_goal_for_existing_entries",
+            kind: MigrationKind::Up,
+            sql: "INSERT INTO goals (title, description, start_date, weekly_hours_goal, success_criteria)
+                  SELECT 'My learning goal',
+                         'Created automatically so existing entries stay attached.',
+                         date('now', 'localtime'),
+                         5,
+                         NULL
+                  WHERE NOT EXISTS (SELECT 1 FROM goals)
+                    AND EXISTS (SELECT 1 FROM entries);",
+        },
     ]
 }
 
@@ -522,6 +556,18 @@ fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
     builder.build(app)?;
     Ok(())
+}
+
+/// Deletes an attachment from the app evidence folder (never outside it).
+#[tauri::command]
+fn delete_evidence_file(app: AppHandle, path: String) -> Result<(), String> {
+    db::delete_evidence_file(&app, &path)
+}
+
+/// Copies the live database into a user-chosen folder.
+#[tauri::command]
+fn backup_database(app: AppHandle, folder: String) -> Result<String, String> {
+    db::backup_to_folder(&app, &folder)
 }
 
 /// Opens an http(s) link or an absolute local path with the Windows shell.
@@ -823,6 +869,15 @@ fn read_sync_file(folder: String, file_name: String) -> Result<String, String> {
 
 pub fn run() {
     tauri::Builder::default()
+        // Registered before the SQL plugin so the backup runs before migrations.
+        .plugin(
+            tauri::plugin::Builder::<tauri::Wry>::new("striker-db-backup")
+                .setup(|app, _api| {
+                    db::backup_before_migrations(app);
+                    Ok(())
+                })
+                .build(),
+        )
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations("sqlite:striker.db", migrations())
@@ -851,6 +906,8 @@ pub fn run() {
             open_external,
             save_evidence_base64,
             read_evidence_image,
+            delete_evidence_file,
+            backup_database,
             write_sync_file,
             read_sync_file
         ])
@@ -867,6 +924,7 @@ pub fn run() {
             }
 
             setup_tray(&handle)?;
+            scheduler::spawn(handle.clone());
             Ok(())
         })
         .on_window_event(|window, event| {

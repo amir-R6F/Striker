@@ -1,5 +1,11 @@
+import { invoke } from "@tauri-apps/api/core";
 import { decryptWithPassphrase, encryptWithPassphrase } from "./crypto";
 import type { ExportBundle } from "./types";
+
+/** Copies the live SQLite database into an absolute folder path. */
+export async function backupDatabaseTo(folder: string): Promise<string> {
+  return invoke<string>("backup_database", { folder: folder.trim() });
+}
 
 interface BackupEnvelope {
   app: "Striker";

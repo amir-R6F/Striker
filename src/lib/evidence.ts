@@ -55,6 +55,11 @@ export async function importEvidenceFile(file: File): Promise<EvidenceInput> {
   return { kind, path, originalName: file.name };
 }
 
+/** Deletes a copied evidence file; the Rust command refuses paths outside it. */
+export async function deleteEvidenceFile(path: string): Promise<void> {
+  await invoke("delete_evidence_file", { path });
+}
+
 /** Returns a local evidence image as a displayable data URL. */
 export async function readEvidenceImage(path: string): Promise<string> {
   return invoke<string>("read_evidence_image", { path });

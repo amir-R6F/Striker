@@ -4,7 +4,13 @@ import {
   enable as enableAutostart,
   isEnabled as isAutostartEnabled,
 } from "@tauri-apps/plugin-autostart";
-import { getExportBundle } from "../../lib/db";
+import { backupDatabaseTo } from "../../lib/backup";
+import {
+  archiveGoal,
+  getActiveGoal,
+  getExportBundle,
+  getGoals,
+} from "../../lib/db";
 import {
   currentMonthKey,
   formatShort,
@@ -23,9 +29,13 @@ import {
   isDoNotDisturb,
   isGamificationEnabled,
   isIdleHideEnabled,
+  isReminderCategoryEnabled,
+  reminderWakeHour,
 } from "../../lib/settings";
+import type { Goal } from "../../lib/types";
 import { useAppStore } from "../../store/useAppStore";
 import { DownloadIcon } from "../icons";
+import { GoalSetup } from "../GoalSetup";
 import { AiSettings } from "../settings/AiSettings";
 import { EncryptionSettings } from "../settings/EncryptionSettings";
 import { IntegrationsSettings } from "../settings/IntegrationsSettings";
@@ -35,6 +45,7 @@ import {
   Card,
   SectionTitle,
   Segmented,
+  Select,
   TextInput,
   Toggle,
 } from "../ui";
@@ -53,6 +64,9 @@ export function SettingsTab() {
   const setTheme = useAppStore((state) => state.setTheme);
   const settings = useAppStore((state) => state.settings);
   const setSetting = useAppStore((state) => state.setSetting);
+  const setGoal = useAppStore((state) => state.setGoal);
+  const revision = useAppStore((state) => state.revision);
+  const bumpRevision = useAppStore((state) => state.bumpRevision);
   const notify = useAppStore((state) => state.notify);
 
   const idleEnabled = isIdleHideEnabled(settings);
@@ -69,6 +83,33 @@ export function SettingsTab() {
   const [lastExport, setLastExport] = useState<string | null>(null);
   const [reportKind, setReportKind] = useState<"month" | "quarter">("month");
   const [reportMonth, setReportMonth] = useState(currentMonthKey());
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [wakeHourDraft, setWakeHourDraft] = useState(
+    String(reminderWakeHour(settings)),
+  );
+  const [showGoalForm, setShowGoalForm] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const [backupFolder, setBackupFolder] = useState("");
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [lastBackup, setLastBackup] = useState<string | null>(null);
+
+  useEffect(() => {
+    setWakeHourDraft(String(reminderWakeHour(settings)));
+  }, [settings]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getGoals()
+      .then((rows) => {
+        if (!cancelled) setGoals(rows);
+      })
+      .catch((error: unknown) => {
+        console.warn("Could not load goals", error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [revision]);
 
   useEffect(() => {
     setMinutesDraft(String(idleMinutes));
@@ -135,6 +176,68 @@ export function SettingsTab() {
   async function handleDoNotDisturbToggle(next: boolean) {
     await setSetting(SETTING_KEYS.doNotDisturb, String(next));
     notify(next ? "Do not disturb on" : "Do not disturb off");
+  }
+
+  function commitWakeHour() {
+    const parsed = Number(wakeHourDraft);
+    const clamped = Number.isFinite(parsed)
+      ? Math.min(23, Math.max(0, Math.round(parsed)))
+      : reminderWakeHour(settings);
+    setWakeHourDraft(String(clamped));
+    void setSetting(SETTING_KEYS.reminderWakeHour, String(clamped));
+  }
+
+  async function toggleReminderCategory(
+    key: string,
+    label: string,
+    next: boolean,
+  ) {
+    await setSetting(key, String(next));
+    notify(`${label} reminder ${next ? "on" : "off"}`);
+  }
+
+  async function handleArchiveGoal() {
+    if (!goal || archiving) return;
+    if (
+      !window.confirm(
+        `Archive "${goal.title}"? Its entries, milestones and roadmaps stay in the database.`,
+      )
+    ) {
+      return;
+    }
+    setArchiving(true);
+    try {
+      await archiveGoal(goal.id);
+      const next = await getActiveGoal();
+      await setSetting(SETTING_KEYS.activeGoal, next ? String(next.id) : "");
+      setGoal(next);
+      bumpRevision();
+      notify("Goal archived");
+    } catch (error) {
+      console.error("Could not archive goal", error);
+      notify("Could not archive goal", "error");
+    } finally {
+      setArchiving(false);
+    }
+  }
+
+  async function handleBackupNow() {
+    if (backupBusy) return;
+    if (!/^([A-Za-z]:[\\/]|\\\\)/.test(backupFolder.trim())) {
+      notify("Enter an absolute Windows folder path", "error");
+      return;
+    }
+    setBackupBusy(true);
+    try {
+      const path = await backupDatabaseTo(backupFolder);
+      setLastBackup(path);
+      notify("Database backed up");
+    } catch (error) {
+      console.error("Could not back up the database", error);
+      notify("Could not back up the database", "error");
+    } finally {
+      setBackupBusy(false);
+    }
   }
 
   function commitIdleMinutes() {
@@ -307,21 +410,95 @@ export function SettingsTab() {
       <section>
         <SectionTitle>Reminders</SectionTitle>
         <Card className="divide-y divide-line">
-          <div className="flex items-start justify-between gap-3 pb-3">
-            <div className="min-w-0">
-              <p className="text-[12.5px] font-medium">Smart reminders</p>
-              <p className="mt-0.5 text-[10.5px] leading-relaxed text-muted">
-                At most one tray notification a day: a nudge after two quiet
-                days, a push to practise after three input-only days, or the
-                weekly review on Sunday. Checks only while the widget is
-                visible.
-              </p>
+          <div className="space-y-2 pb-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[12.5px] font-medium">Smart reminders</p>
+                <p className="mt-0.5 text-[10.5px] leading-relaxed text-muted">
+                  One background check a day from Rust, sent as a Windows toast.
+                  A second weekly nudge goes out on Sunday. The widget never
+                  wakes for it.
+                </p>
+              </div>
+              <Toggle
+                checked={remindersEnabled}
+                onChange={(value) => void handleRemindersToggle(value)}
+                label="Smart reminders"
+              />
             </div>
-            <Toggle
-              checked={remindersEnabled}
-              onChange={(value) => void handleRemindersToggle(value)}
-              label="Smart reminders"
-            />
+            <label className="flex items-center gap-2 text-[11px] text-muted">
+              Check around
+              <span className="w-14">
+                <TextInput
+                  type="number"
+                  min={0}
+                  max={23}
+                  step={1}
+                  value={wakeHourDraft}
+                  onChange={(event) => setWakeHourDraft(event.target.value)}
+                  onBlur={commitWakeHour}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      commitWakeHour();
+                      event.currentTarget.blur();
+                    }
+                  }}
+                  className="py-1 text-center"
+                  aria-label="Daily reminder hour"
+                  disabled={!remindersEnabled}
+                />
+              </span>
+              :00 local time
+            </label>
+          </div>
+
+          <div className="space-y-2 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[11.5px]">Quiet-day nudge</p>
+              <Toggle
+                checked={isReminderCategoryEnabled(settings, "inactivity")}
+                disabled={!remindersEnabled}
+                onChange={(value) =>
+                  void toggleReminderCategory(
+                    SETTING_KEYS.reminderInactivity,
+                    "Quiet-day",
+                    value,
+                  )
+                }
+                label="Quiet-day nudge"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[11.5px]">Input-only streak nudge</p>
+              <Toggle
+                checked={isReminderCategoryEnabled(settings, "passive")}
+                disabled={!remindersEnabled}
+                onChange={(value) =>
+                  void toggleReminderCategory(
+                    SETTING_KEYS.reminderPassive,
+                    "Input-only",
+                    value,
+                  )
+                }
+                label="Input-only streak nudge"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[11.5px]">Sunday weekly review</p>
+              <Toggle
+                checked={isReminderCategoryEnabled(settings, "weekly")}
+                disabled={!remindersEnabled}
+                onChange={(value) =>
+                  void toggleReminderCategory(
+                    SETTING_KEYS.reminderWeekly,
+                    "Weekly review",
+                    value,
+                  )
+                }
+                label="Sunday weekly review"
+              />
+            </div>
           </div>
 
           <div className="flex items-start justify-between gap-3 pt-3">
@@ -402,15 +579,62 @@ export function SettingsTab() {
                   {goal.success_criteria}
                 </p>
               ) : null}
-              <p className="text-[10px] text-muted">
-                This MVP tracks one active goal at a time.
+              <p className="text-[10px] leading-relaxed text-muted">
+                Switch goals from the header. Archived goals keep their data but
+                disappear from the switcher.
               </p>
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <Button
+                  variant="subtle"
+                  className="h-8 px-2.5 text-[10.5px]"
+                  onClick={() => setShowGoalForm((open) => !open)}
+                >
+                  {showGoalForm ? "Close" : "Add goal"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="h-8 px-2.5 text-[10.5px]"
+                  onClick={() => void handleArchiveGoal()}
+                  disabled={archiving}
+                >
+                  {archiving ? "Archiving…" : "Archive this goal"}
+                </Button>
+              </div>
+              {showGoalForm ? (
+                <div className="pt-2">
+                  <GoalSetup />
+                </div>
+              ) : null}
             </>
           ) : (
             <p className="text-[11.5px] text-muted">
-              No goal yet — create one from the Log tab.
+              No active goal — add one above.
             </p>
           )}
+
+          <div className="border-t border-line pt-2.5">
+            <label
+              htmlFor="default-goal"
+              className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted"
+            >
+              Default goal at launch
+            </label>
+            <Select
+              id="default-goal"
+              value={settings[SETTING_KEYS.defaultGoal] ?? ""}
+              onChange={(event) =>
+                void setSetting(SETTING_KEYS.defaultGoal, event.target.value)
+              }
+              className="mt-1.5"
+            >
+              <option value="">Most recent goal</option>
+              {goals.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.title}
+                </option>
+              ))}
+            </Select>
+          </div>
         </Card>
       </section>
 
@@ -518,6 +742,41 @@ export function SettingsTab() {
               Saved to {lastExport}
             </p>
           ) : null}
+
+          <div className="space-y-1.5 border-t border-line pt-2.5">
+            <label
+              htmlFor="backup-folder"
+              className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted"
+            >
+              Database backup
+            </label>
+            <TextInput
+              id="backup-folder"
+              value={backupFolder}
+              onChange={(event) => setBackupFolder(event.target.value)}
+              placeholder="D:\\Backups\\Striker"
+              aria-label="Database backup folder"
+            />
+            <Button
+              variant="subtle"
+              className="h-9 w-full justify-start px-3"
+              onClick={() => void handleBackupNow()}
+              disabled={backupBusy}
+            >
+              <DownloadIcon className="h-3.5 w-3.5" />
+              {backupBusy ? "Copying…" : "Backup database now"}
+            </Button>
+            <p className="text-[10px] leading-relaxed text-muted">
+              Copies striker.db into the folder using SQLite&apos;s backup API.
+              Before any migration, Striker also keeps the last five automatic
+              snapshots next to the database.
+            </p>
+            {lastBackup ? (
+              <p className="break-all rounded-lg bg-card2/60 px-2 py-1.5 text-[9.5px] leading-relaxed text-muted">
+                Saved to {lastBackup}
+              </p>
+            ) : null}
+          </div>
         </Card>
       </section>
 

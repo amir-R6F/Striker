@@ -1,7 +1,11 @@
+import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getGoals } from "../lib/db";
+import { SETTING_KEYS } from "../lib/settings";
+import type { Goal } from "../lib/types";
 import { useAppStore } from "../store/useAppStore";
 import { BoltIcon, MinusIcon } from "./icons";
-import { IconButton } from "./ui";
+import { IconButton, Select } from "./ui";
 
 async function hideWidget(): Promise<void> {
   try {
@@ -14,7 +18,35 @@ async function hideWidget(): Promise<void> {
 
 export function WindowChrome() {
   const goal = useAppStore((state) => state.goal);
+  const revision = useAppStore((state) => state.revision);
   const requestQuickLog = useAppStore((state) => state.requestQuickLog);
+  const setGoal = useAppStore((state) => state.setGoal);
+  const setSetting = useAppStore((state) => state.setSetting);
+  const bumpRevision = useAppStore((state) => state.bumpRevision);
+
+  const [goals, setGoals] = useState<Goal[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getGoals()
+      .then((rows) => {
+        if (!cancelled) setGoals(rows);
+      })
+      .catch((error: unknown) => {
+        console.warn("Could not load goals", error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [revision]);
+
+  async function switchGoal(id: number) {
+    const next = goals.find((candidate) => candidate.id === id);
+    if (!next) return;
+    setGoal(next);
+    await setSetting(SETTING_KEYS.activeGoal, String(next.id));
+    bumpRevision();
+  }
 
   return (
     <header
@@ -35,9 +67,26 @@ export function WindowChrome() {
             daily log
           </span>
         </div>
-        <p className="mt-1 truncate text-[11px] leading-none text-muted">
-          {goal?.title ?? "No active goal yet"}
-        </p>
+        {goals.length > 1 ? (
+          <div className="mt-0.5 w-[190px]">
+            <Select
+              value={goal?.id ?? ""}
+              onChange={(event) => void switchGoal(Number(event.target.value))}
+              aria-label="Active goal"
+              className="h-6 rounded-md py-0 pl-1 text-[10.5px] text-muted"
+            >
+              {goals.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.title}
+                </option>
+              ))}
+            </Select>
+          </div>
+        ) : (
+          <p className="mt-1 truncate text-[11px] leading-none text-muted">
+            {goal?.title ?? "No active goal yet"}
+          </p>
+        )}
       </div>
       <IconButton label="Quick log (Ctrl+Shift+S)" onClick={requestQuickLog}>
         <BoltIcon className="h-4 w-4" />

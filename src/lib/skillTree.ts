@@ -342,6 +342,33 @@ export function parseRoadmap(input: string): ParsedRoadmap {
   return { title, description, source, createdAt, nodes };
 }
 
+/** Depth-first node order used by pickers in the log and editor forms. */
+export function orderedSkillRows(
+  skills: Skill[],
+): Array<{ skill: Skill; depth: number }> {
+  const childrenOf = new Map<number, Skill[]>();
+  for (const skill of skills) {
+    const parent = skill.parent_id ?? 0;
+    const children = childrenOf.get(parent) ?? [];
+    children.push(skill);
+    childrenOf.set(parent, children);
+  }
+  for (const children of childrenOf.values()) {
+    children.sort(
+      (a, b) => a.order_index - b.order_index || a.name.localeCompare(b.name),
+    );
+  }
+  const rows: Array<{ skill: Skill; depth: number }> = [];
+  const visit = (parent: number, depth: number) => {
+    for (const skill of childrenOf.get(parent) ?? []) {
+      rows.push({ skill, depth });
+      visit(skill.id, depth + 1);
+    }
+  };
+  visit(0, 0);
+  return rows;
+}
+
 export function roadmapPromptTemplate(): string {
   return `Create a learning roadmap as valid JSON only, using this exact schema version 1.
 

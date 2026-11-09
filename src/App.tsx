@@ -1,8 +1,10 @@
+import { useEffect } from "react";
 import { useIdleAutoHide } from "./hooks/useIdleAutoHide";
-import { useSmartReminders } from "./hooks/useSmartReminders";
 import { useTauriBridge } from "./hooks/useTauriBridge";
+import { ensureNotificationPermission } from "./lib/notifications";
 import { idleHideMinutes, isIdleHideEnabled } from "./lib/settings";
 import { useAppStore } from "./store/useAppStore";
+import { Onboarding } from "./components/Onboarding";
 import { TabBar } from "./components/TabBar";
 import { Toasts } from "./components/Toasts";
 import { WindowChrome } from "./components/WindowChrome";
@@ -22,6 +24,7 @@ export default function App() {
   const error = useAppStore((state) => state.error);
   const tab = useAppStore((state) => state.tab);
   const visible = useAppStore((state) => state.visible);
+  const goal = useAppStore((state) => state.goal);
   const settings = useAppStore((state) => state.settings);
   const hydrate = useAppStore((state) => state.hydrate);
 
@@ -31,7 +34,10 @@ export default function App() {
     visible,
   );
 
-  useSmartReminders(ready && visible && !error);
+  // Ask once so the Rust scheduler can show Windows toasts.
+  useEffect(() => {
+    void ensureNotificationPermission();
+  }, []);
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden rounded-[18px] border border-line bg-bg text-ink">
@@ -57,6 +63,13 @@ export default function App() {
           </span>
           <p className="text-[11px] text-muted">Opening your log…</p>
         </div>
+      ) : !goal ? (
+        <>
+          <WindowChrome />
+          <main className="min-h-0 flex-1 overflow-y-auto">
+            <Onboarding />
+          </main>
+        </>
       ) : (
         <>
           <WindowChrome />

@@ -5,98 +5,43 @@ import {
   type ChangeEvent,
   type FormEvent,
 } from "react";
-import { addEntry, getDaySummary, getSkills } from "../../lib/db";
-import { formatDay, formatMinutes, todayKey } from "../../lib/dates";
+import {
+  addEntry,
+  getDaySummary,
+  getRecentEntriesForEdit,
+  getSkills,
+  getSkillTrees,
+} from "../../lib/db";
+import { formatDay, formatMinutes, formatShort, todayKey } from "../../lib/dates";
 import { evidenceKindFor, importEvidenceFile } from "../../lib/evidence";
+import { confirmDeleteEntry } from "../../lib/entryActions";
 import {
   artStationEvidence,
   blenderEvidence,
   githubEvidence,
 } from "../../lib/integrations";
-import type { EvidenceInput, Skill } from "../../lib/types";
+import { orderedSkillRows } from "../../lib/skillTree";
+import {
+  ENTRY_TEMPLATES,
+  type EntryFocusTarget,
+  type EntryTemplate,
+} from "../../lib/templates";
+import type { Entry, EvidenceInput, Skill } from "../../lib/types";
 import { SETTING_KEYS } from "../../lib/settings";
 import { useAppStore } from "../../store/useAppStore";
+import { EntryEditor } from "../EntryEditor";
 import { PomodoroCard } from "../PomodoroCard";
 import {
   ChevronDownIcon,
   FileIcon,
   ImageIcon,
   LinkIcon,
+  PencilIcon,
   PlusIcon,
   TrashIcon,
 } from "../icons";
 import { GoalSetup } from "../GoalSetup";
 import { Button, Card, Field, TextInput, cx } from "../ui";
-
-type FocusTarget = "action" | "learned" | "difficulty";
-
-interface Template {
-  id: string;
-  label: string;
-  action: string;
-  learned?: string;
-  difficulty?: string;
-  minutes?: string;
-  openDetails: boolean;
-  focus: FocusTarget;
-}
-
-const TEMPLATES: Template[] = [
-  {
-    id: "practice",
-    label: "Practice session",
-    action: "Practice session",
-    minutes: "45",
-    openDetails: true,
-    focus: "learned",
-  },
-  {
-    id: "problem",
-    label: "Problem & solution",
-    action: "Problem & solution",
-    difficulty: "Open question: ",
-    openDetails: true,
-    focus: "difficulty",
-  },
-  {
-    id: "idea",
-    label: "Project idea",
-    action: "Project idea",
-    learned: "Idea: ",
-    openDetails: false,
-    focus: "learned",
-  },
-  {
-    id: "review",
-    label: "Weekly review",
-    action: "Weekly review",
-    minutes: "30",
-    openDetails: true,
-    focus: "learned",
-  },
-];
-
-function orderedSkillRows(skills: Skill[]): Array<{ skill: Skill; depth: number }> {
-  const childrenOf = new Map<number, Skill[]>();
-  for (const skill of skills) {
-    const parent = skill.parent_id ?? 0;
-    const children = childrenOf.get(parent) ?? [];
-    children.push(skill);
-    childrenOf.set(parent, children);
-  }
-  for (const children of childrenOf.values()) {
-    children.sort((a, b) => a.order_index - b.order_index || a.name.localeCompare(b.name));
-  }
-  const rows: Array<{ skill: Skill; depth: number }> = [];
-  const visit = (parent: number, depth: number) => {
-    for (const skill of childrenOf.get(parent) ?? []) {
-      rows.push({ skill, depth });
-      visit(skill.id, depth + 1);
-    }
-  };
-  visit(0, 0);
-  return rows;
-}
 
 export function LogTab({ active }: { active: boolean }) {
   const goal = useAppStore((state) => state.goal);
@@ -131,6 +76,8 @@ export function LogTab({ active }: { active: boolean }) {
   const [githubUrl, setGithubUrl] = useState("");
   const [artStationUrl, setArtStationUrl] = useState("");
   const [blenderPath, setBlenderPath] = useState("");
+  const [recent, setRecent] = useState<Entry[]>([]);
+  const [editing, setEditing] = useState<Entry | null>(null);
 
   useEffect(() => {
     if (!active) return;
@@ -151,17 +98,42 @@ export function LogTab({ active }: { active: boolean }) {
     };
   }, [goal, revision, today]);
 
+  useEffect(() => {
+    setEditing(null);
+  }, [goal?.id]);
+
+  useEffect(() => {
+    if (!goal) return;
+    let cancelled = false;
+    getRecentEntriesForEdit(goal.id, 15)
+      .then((rows) => {
+        if (!cancelled) setRecent(rows);
+      })
+      .catch((error: unknown) => {
+        console.warn("Could not load recent entries", error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [goal, revision]);
+
   const activeTreeId = Number(settings[SETTING_KEYS.activeSkillTree]) || null;
 
   useEffect(() => {
+    if (!goal) {
+      setSkills([]);
+      return;
+    }
     let cancelled = false;
-    getSkills()
-      .then((all) => {
+    Promise.all([getSkills(), getSkillTrees(goal.id)])
+      .then(([all, trees]) => {
         if (cancelled) return;
+        const treeIds = new Set(trees.map((tree) => tree.id));
+        const scoped = all.filter((skill) => treeIds.has(skill.tree_id));
         setSkills(
-          activeTreeId != null
-            ? all.filter((skill) => skill.tree_id === activeTreeId)
-            : all,
+          activeTreeId != null && treeIds.has(activeTreeId)
+            ? scoped.filter((skill) => skill.tree_id === activeTreeId)
+            : scoped,
         );
         setSkillError(false);
       })
@@ -172,9 +144,9 @@ export function LogTab({ active }: { active: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [activeTreeId, revision]);
+  }, [activeTreeId, goal, revision]);
 
-  function focusField(target: FocusTarget) {
+  function focusField(target: EntryFocusTarget) {
     window.requestAnimationFrame(() => {
       if (target === "action") actionRef.current?.focus();
       else if (target === "difficulty") difficultyRef.current?.focus();
@@ -182,7 +154,7 @@ export function LogTab({ active }: { active: boolean }) {
     });
   }
 
-  function applyTemplate(template: Template) {
+  function applyTemplate(template: EntryTemplate) {
     // Templates are a starting point: reset the fields they own, keep skills.
     setAction(template.action);
     setLearned(template.learned ?? "");
@@ -262,6 +234,19 @@ export function LogTab({ active }: { active: boolean }) {
     );
     setBlenderPath("");
     notify("Blender project attached");
+  }
+
+  async function handleDelete(entryId: number) {
+    try {
+      if (await confirmDeleteEntry(entryId)) {
+        if (editing?.id === entryId) setEditing(null);
+        bumpRevision();
+        notify("Entry deleted");
+      }
+    } catch (error) {
+      console.error("Could not delete entry", error);
+      notify("Could not delete entry", "error");
+    }
   }
 
   async function handleSave(event?: FormEvent) {
@@ -359,7 +344,7 @@ export function LogTab({ active }: { active: boolean }) {
       </div>
 
       <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-0.5">
-        {TEMPLATES.map((template) => (
+        {ENTRY_TEMPLATES.map((template) => (
           <button
             key={template.id}
             type="button"
@@ -661,6 +646,62 @@ export function LogTab({ active }: { active: boolean }) {
       </form>
 
       <PomodoroCard active={active} />
+
+      {recent.length > 0 ? (
+        <section className="space-y-1.5">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
+              Recent entries
+            </h2>
+            <span className="text-[9.5px] text-muted">{recent.length}</span>
+          </div>
+          {recent.map((entry) =>
+            editing?.id === entry.id ? (
+              <EntryEditor
+                key={entry.id}
+                entry={entry}
+                onCancel={() => setEditing(null)}
+                onSaved={() => {
+                  setEditing(null);
+                  bumpRevision();
+                }}
+              />
+            ) : (
+              <div
+                key={entry.id}
+                className="flex items-start gap-2 rounded-lg border border-line bg-card px-2.5 py-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="line-clamp-1 text-[11.5px] font-medium">
+                    {entry.action ?? entry.learned ?? entry.text}
+                  </p>
+                  <p className="mt-0.5 text-[9.5px] text-muted">
+                    {formatShort(entry.date)}
+                    {entry.minutes != null ? ` · ${formatMinutes(entry.minutes)}` : ""}
+                    {entry.confidence != null ? ` · ${entry.confidence}/5` : ""}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditing(entry)}
+                  aria-label="Edit entry"
+                  className="text-muted hover:text-ink"
+                >
+                  <PencilIcon className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleDelete(entry.id)}
+                  aria-label="Delete entry"
+                  className="text-muted hover:text-danger"
+                >
+                  <TrashIcon className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ),
+          )}
+        </section>
+      ) : null}
 
       <p className="text-center text-[10px] text-muted">
         Ctrl + Enter saves · templates fill the structure

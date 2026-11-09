@@ -9,6 +9,10 @@ export const SETTING_KEYS = {
   reminders: "reminders_enabled",
   doNotDisturb: "do_not_disturb",
   reminderLastSent: "reminder_last_sent",
+  reminderWakeHour: "reminder_wake_hour",
+  reminderInactivity: "reminder_inactivity",
+  reminderPassive: "reminder_passive",
+  reminderWeekly: "reminder_weekly",
   pomodoroFocus: "pomodoro_focus_minutes",
   pomodoroBreak: "pomodoro_break_minutes",
   aiProvider: "ai_provider",
@@ -22,6 +26,8 @@ export const SETTING_KEYS = {
   syncWebdavPassword: "sync_webdav_password",
   syncFileName: "sync_file_name",
   activeSkillTree: "active_skill_tree_id",
+  activeGoal: "active_goal_id",
+  defaultGoal: "default_goal_id",
   deviceKey: "secret_device_key",
 } as const;
 
@@ -35,6 +41,7 @@ export const MIN_POMODORO_MINUTES = 1;
 export const MAX_POMODORO_MINUTES = 180;
 
 export const DEFAULT_SYNC_FILE_NAME = "striker-backup.striker";
+export const DEFAULT_REMINDER_WAKE_HOUR = 9;
 
 export type Settings = Record<string, string>;
 export type AiProvider = "ollama" | "openai";
@@ -72,6 +79,41 @@ export function areRemindersEnabled(settings: Settings): boolean {
 
 export function isDoNotDisturb(settings: Settings): boolean {
   return settings[SETTING_KEYS.doNotDisturb] === "true";
+}
+
+/** The local hour (0-23) when the Rust scheduler runs its daily checks. */
+export function reminderWakeHour(settings: Settings): number {
+  const parsed = Number(settings[SETTING_KEYS.reminderWakeHour]);
+  if (!Number.isFinite(parsed)) return DEFAULT_REMINDER_WAKE_HOUR;
+  return Math.min(23, Math.max(0, Math.round(parsed)));
+}
+
+export type ReminderCategory = "inactivity" | "passive" | "weekly";
+
+const REMINDER_CATEGORY_KEYS: Record<ReminderCategory, string> = {
+  inactivity: SETTING_KEYS.reminderInactivity,
+  passive: SETTING_KEYS.reminderPassive,
+  weekly: SETTING_KEYS.reminderWeekly,
+};
+
+export function isReminderCategoryEnabled(
+  settings: Settings,
+  category: ReminderCategory,
+): boolean {
+  return settings[REMINDER_CATEGORY_KEYS[category]] !== "false";
+}
+
+export function settingId(settings: Settings, key: string): number | null {
+  const parsed = Number(settings[key]);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null;
+}
+
+export function activeGoalSetting(settings: Settings): number | null {
+  return settingId(settings, SETTING_KEYS.activeGoal);
+}
+
+export function defaultGoalSetting(settings: Settings): number | null {
+  return settingId(settings, SETTING_KEYS.defaultGoal);
 }
 
 function pomodoroMinutes(

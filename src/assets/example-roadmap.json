@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "title": "Example: Blender character art",
+  "description": "A starter roadmap you can edit or replace. Move, rename and delete nodes freely.",
+  "source": "imported",
+  "created_at": "2026-01-01T00:00:00.000Z",
+  "nodes": [
+    {
+      "id": "fundamentals",
+      "title": "Fundamentals",
+      "description": "Form, proportion and observation before software.",
+      "parent_id": null,
+      "order": 1,
+      "tags": ["basics"],
+      "estimated_hours": 10,
+      "resources": [],
+      "children": ["blocking", "anatomy"]
+    },
+    {
+      "id": "blocking",
+      "title": "Blocking",
+      "description": "Build a readable primary silhouette with primitives.",
+      "parent_id": "fundamentals",
+      "order": 1,
+      "tags": ["sculpting"],
+      "estimated_hours": 8,
+      "resources": [
+        { "title": "Blender manual", "url": "https://docs.blender.org/manual/en/latest/" }
+      ],
+      "children": []
+    },
+    {
+      "id": "anatomy",
+      "title": "Anatomy",
+      "description": "Landmarks and simple proportions for believable figures.",
+      "parent_id": "fundamentals",
+      "order": 2,
+      "tags": ["reference"],
+      "estimated_hours": 12,
+      "resources": [],
+      "children": ["hands"]
+    },
+    {
+      "id": "hands",
+      "title": "Hands and feet",
+      "description": "Break the shapes into planes and simple volumes.",
+      "parent_id": "anatomy",
+      "order": 1,
+      "tags": ["practice"],
+      "estimated_hours": 6,
+      "resources": [],
+      "children": []
+    },
+    {
+      "id": "sculpting",
+      "title": "Sculpting",
+      "description": "Move from blocked forms to secondary and tertiary detail.",
+      "parent_id": null,
+      "order": 2,
+      "tags": ["sculpting"],
+      "estimated_hours": 15,
+      "resources": [],
+      "children": ["retopology"]
+    },
+    {
+      "id": "retopology",
+      "title": "Retopology",
+      "description": "Clean topology that deforms and subdivides well.",
+      "parent_id": "sculpting",
+      "order": 1,
+      "tags": ["topology"],
+      "estimated_hours": 8,
+      "resources": [],
+      "children": []
+    },
+    {
+      "id": "materials",
+      "title": "Materials and texturing",
+      "description": "PBR values, roughness and hand-painted detail.",
+      "parent_id": null,
+      "order": 3,
+      "tags": ["shading"],
+      "estimated_hours": 10,
+      "resources": [],
+      "children": []
+    },
+    {
+      "id": "rigging",
+      "title": "Rigging",
+      "description": "A simple deform rig good enough for a portfolio pose.",
+      "parent_id": null,
+      "order": 4,
+      "tags": ["rigging"],
+      "estimated_hours": 8,
+      "resources": [],
+      "children": []
+    },
+    {
+      "id": "lighting",
+      "title": "Lighting and render",
+      "description": "Three-point lighting and a clean final render.",
+      "parent_id": null,
+      "order": 5,
+      "tags": ["render"],
+      "estimated_hours": 5,
+      "resources": [],
+      "children": []
+    },
+    {
+      "id": "portfolio",
+      "title": "Portfolio piece",
+      "description": "Take one character from blockout to a finished render.",
+      "parent_id": null,
+      "order": 6,
+      "tags": ["project"],
+      "estimated_hours": 20,
+      "resources": [],
+      "children": []
+    }
+  ]
+}

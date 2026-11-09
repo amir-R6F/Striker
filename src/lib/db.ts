@@ -9,7 +9,7 @@ import {
 } from "./dates";
 import { scheduleCard } from "./srs";
 import type { ParsedRoadmap } from "./skillTree";
-import { isSensitiveSettingKey } from "./settings";
+import { SETTING_KEYS, isSensitiveSettingKey } from "./settings";
 import type {
   DailyRow,
   DashboardData,
@@ -111,19 +111,57 @@ export async function saveSetting(key: string, value: string): Promise<void> {
 /* Goals                                                               */
 /* ------------------------------------------------------------------ */
 
-/** MVP: the most recently created goal is the single active goal. */
+function parseStoredId(value: string | undefined): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null;
+}
+
+/**
+ * The explicit active goal wins, then the configured default, then the newest
+ * goal that is not archived.
+ */
 export async function getActiveGoal(): Promise<Goal | null> {
   const database = await db();
+  const settings = await loadSettings();
+  const candidates = [
+    parseStoredId(settings[SETTING_KEYS.activeGoal]),
+    parseStoredId(settings[SETTING_KEYS.defaultGoal]),
+  ];
+  for (const id of candidates) {
+    if (id == null) continue;
+    const rows = await database.select<Goal[]>(
+      "SELECT * FROM goals WHERE id = $1 AND archived_at IS NULL",
+      [id],
+    );
+    if (rows[0]) return rows[0];
+  }
   const rows = await database.select<Goal[]>(
-    "SELECT * FROM goals ORDER BY id DESC LIMIT 1",
+    "SELECT * FROM goals WHERE archived_at IS NULL ORDER BY id DESC LIMIT 1",
   );
   return rows[0] ?? null;
 }
 
-export async function getGoals(): Promise<Array<{ id: number; title: string }>> {
+export async function getGoals(includeArchived = false): Promise<Goal[]> {
   const database = await db();
-  return database.select<Array<{ id: number; title: string }>>(
-    "SELECT id, title FROM goals ORDER BY id DESC",
+  return database.select<Goal[]>(
+    `SELECT * FROM goals
+     ${includeArchived ? "" : "WHERE archived_at IS NULL"}
+     ORDER BY id DESC`,
+  );
+}
+
+export async function getGoal(id: number): Promise<Goal | null> {
+  const database = await db();
+  const rows = await database.select<Goal[]>("SELECT * FROM goals WHERE id = $1", [id]);
+  return rows[0] ?? null;
+}
+
+/** Hides a goal from the switcher without deleting its entries or trees. */
+export async function archiveGoal(id: number): Promise<void> {
+  const database = await db();
+  await database.execute(
+    "UPDATE goals SET archived_at = date('now', 'localtime') WHERE id = $1 AND archived_at IS NULL",
+    [id],
   );
 }
 
@@ -196,11 +234,11 @@ export async function addEntry(input: EntryInput): Promise<number> {
         [entryId, skillId],
       );
     }
-    for (const item of evidence) {
+    for (const [index, item] of evidence.entries()) {
       await database.execute(
-        `INSERT INTO entry_evidence (entry_id, kind, path, original_name)
-         VALUES ($1, $2, $3, $4)`,
-        [entryId, item.kind, item.path.trim(), item.originalName],
+        `INSERT INTO entry_evidence (entry_id, kind, path, original_name, position)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [entryId, item.kind, item.path.trim(), item.originalName, index],
       );
     }
   } catch (error) {
@@ -320,6 +358,174 @@ export async function addMinutesToEntry(
     "UPDATE entries SET minutes = COALESCE(minutes, 0) + $1 WHERE id = $2",
     [amount, entryId],
   );
+}
+
+export async function getEntry(id: number): Promise<Entry | null> {
+  const database = await db();
+  const rows = await database.select<Entry[]>("SELECT * FROM entries WHERE id = $1", [id]);
+  return rows[0] ?? null;
+}
+
+export async function getEntryEvidence(entryId: number): Promise<Evidence[]> {
+  const database = await db();
+  return database.select<Evidence[]>(
+    `SELECT * FROM entry_evidence
+     WHERE entry_id = $1
+     ORDER BY position ASC, id ASC`,
+    [entryId],
+  );
+}
+
+export async function getEntrySkillIds(entryId: number): Promise<number[]> {
+  const database = await db();
+  const rows = await database.select<Array<{ node_id: number }>>(
+    "SELECT node_id FROM entry_skill_nodes WHERE entry_id = $1 ORDER BY node_id ASC",
+    [entryId],
+  );
+  return rows.map((row) => Number(row.node_id));
+}
+
+/** Recent entries with their full fields, for the Log tab list. */
+export async function getRecentEntriesForEdit(
+  goalId: number,
+  limit = 20,
+): Promise<Entry[]> {
+  const database = await db();
+  return database.select<Entry[]>(
+    `SELECT * FROM entries
+     WHERE goal_id = $1
+     ORDER BY date DESC, id DESC
+     LIMIT $2`,
+    [goalId, limit],
+  );
+}
+
+/**
+ * Updates an entry and re-links skill nodes and evidence in one SQLite
+ * transaction, so a failure never leaves half-updated links behind.
+ */
+export async function updateEntry(id: number, input: EntryInput): Promise<void> {
+  const database = await db();
+  const evidence = input.evidenceItems.filter(
+    (item, index, items) =>
+      item.path.trim() !== "" &&
+      items.findIndex((candidate) => candidate.path === item.path) === index,
+  );
+  const typedEvidence = input.evidence?.trim();
+  const primaryEvidence = typedEvidence || evidence[0]?.path || null;
+
+  await database.execute("BEGIN IMMEDIATE");
+  try {
+    await database.execute(
+      `UPDATE entries
+       SET action = $1, learned = $2, difficulty = $3, source = $4,
+           evidence = $5, minutes = $6, confidence = $7, skill_tag = $8,
+           text = $9
+       WHERE id = $10`,
+      [
+        input.action,
+        input.learned,
+        input.difficulty,
+        input.source,
+        primaryEvidence,
+        input.minutes,
+        input.confidence,
+        input.skillTag,
+        input.learned ?? input.action ?? "",
+        id,
+      ],
+    );
+
+    await database.execute("DELETE FROM entry_skill_nodes WHERE entry_id = $1", [id]);
+    for (const skillId of uniqueNumbers(input.skillIds)) {
+      await database.execute(
+        "INSERT OR IGNORE INTO entry_skill_nodes (entry_id, node_id) VALUES ($1, $2)",
+        [id, skillId],
+      );
+    }
+
+    const keepIds = new Set(
+      evidence
+        .map((item) => item.id)
+        .filter((value): value is number => Boolean(value && value > 0)),
+    );
+    const existing = await database.select<Array<{ id: number }>>(
+      "SELECT id FROM entry_evidence WHERE entry_id = $1",
+      [id],
+    );
+    for (const row of existing) {
+      if (!keepIds.has(row.id)) {
+        await database.execute("DELETE FROM entry_evidence WHERE id = $1", [row.id]);
+      }
+    }
+
+    for (const [index, item] of evidence.entries()) {
+      if (item.id != null && keepIds.has(item.id)) {
+        await database.execute(
+          `UPDATE entry_evidence
+           SET kind = $1, path = $2, original_name = $3, position = $4
+           WHERE id = $5 AND entry_id = $6`,
+          [item.kind, item.path.trim(), item.originalName, index, item.id, id],
+        );
+      } else {
+        await database.execute(
+          `INSERT INTO entry_evidence
+             (entry_id, kind, path, original_name, position)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [id, item.kind, item.path.trim(), item.originalName, index],
+        );
+      }
+    }
+
+    await database.execute("COMMIT");
+  } catch (error) {
+    await database.execute("ROLLBACK").catch(() => undefined);
+    throw error;
+  }
+}
+
+/**
+ * Deletes an entry and its links. Evidence files stay on disk; the returned
+ * rows let the caller delete the ones the user explicitly confirmed.
+ */
+export async function deleteEntry(id: number): Promise<Evidence[]> {
+  const database = await db();
+  const evidence = await getEntryEvidence(id);
+  await database.execute("BEGIN IMMEDIATE");
+  try {
+    await database.execute("DELETE FROM milestone_entries WHERE entry_id = $1", [id]);
+    await database.execute("UPDATE flashcards SET entry_id = NULL WHERE entry_id = $1", [id]);
+    await database.execute("DELETE FROM entry_skill_nodes WHERE entry_id = $1", [id]);
+    await database.execute("DELETE FROM entry_skills WHERE entry_id = $1", [id]);
+    await database.execute("DELETE FROM entry_evidence WHERE entry_id = $1", [id]);
+    await database.execute("DELETE FROM entries WHERE id = $1", [id]);
+    await database.execute("COMMIT");
+  } catch (error) {
+    await database.execute("ROLLBACK").catch(() => undefined);
+    throw error;
+  }
+  return evidence;
+}
+
+export async function renameEvidence(
+  id: number,
+  label: string | null,
+): Promise<void> {
+  const database = await db();
+  await database.execute(
+    "UPDATE entry_evidence SET original_name = $1 WHERE id = $2",
+    [optionalText(label), id],
+  );
+}
+
+export async function reorderEvidence(orderedIds: number[]): Promise<void> {
+  const database = await db();
+  for (const [index, id] of uniqueNumbers(orderedIds).entries()) {
+    await database.execute(
+      "UPDATE entry_evidence SET position = $1 WHERE id = $2",
+      [index, id],
+    );
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1734,8 +1940,9 @@ export async function restoreBundle(
   for (const goal of goals) {
     await database.execute(
       `INSERT INTO goals
-         (id, title, description, start_date, weekly_hours_goal, success_criteria, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+         (id, title, description, start_date, weekly_hours_goal, success_criteria,
+          archived_at, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         goal.id,
         goal.title,
@@ -1743,6 +1950,7 @@ export async function restoreBundle(
         goal.start_date,
         goal.weekly_hours_goal,
         goal.success_criteria,
+        goal.archived_at ?? null,
         goal.created_at,
       ],
     );
@@ -1923,18 +2131,22 @@ export async function restoreBundle(
     );
   }
 
+  const evidenceCountByEntry = new Map<number, number>();
   for (const item of evidence) {
     if (!entryIds.has(item.entry_id)) continue;
+    const nextPosition = evidenceCountByEntry.get(item.entry_id) ?? 0;
+    evidenceCountByEntry.set(item.entry_id, nextPosition + 1);
     await database.execute(
       `INSERT INTO entry_evidence
-         (id, entry_id, kind, path, original_name, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+         (id, entry_id, kind, path, original_name, position, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [
         item.id,
         item.entry_id,
         item.kind,
         item.path,
         item.original_name,
+        Number.isFinite(item.position) ? item.position : nextPosition,
         item.created_at,
       ],
     );

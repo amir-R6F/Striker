@@ -1,26 +1,31 @@
 import { useEffect, useMemo, useState } from "react";
 import { getGoals, getSkills, getSkillTrees, searchEntries } from "../../lib/db";
 import { formatMinutes, formatShort } from "../../lib/dates";
+import { confirmDeleteEntry } from "../../lib/entryActions";
 import { openTarget } from "../../lib/export";
 import type { Goal, SearchEntry, Skill, SkillTree } from "../../lib/types";
 import { useAppStore } from "../../store/useAppStore";
+import { EntryEditor } from "../EntryEditor";
 import { Highlight } from "../Highlight";
 import {
   ChevronDownIcon,
   LinkIcon,
+  PencilIcon,
   SearchIcon,
   SparkIcon,
+  TrashIcon,
 } from "../icons";
 import { Card, Field, Select, TextInput, cx } from "../ui";
 
 export function SearchTab({ active }: { active: boolean }) {
   const revision = useAppStore((state) => state.revision);
   const notify = useAppStore((state) => state.notify);
+  const goal = useAppStore((state) => state.goal);
   const openFlashcardDraft = useAppStore((state) => state.openFlashcardDraft);
 
   const [query, setQuery] = useState("");
   const [skillId, setSkillId] = useState<string>("");
-  const [goalId, setGoalId] = useState<string>("");
+  const [goalId, setGoalId] = useState<string>(goal ? String(goal.id) : "");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [minConfidence, setMinConfidence] = useState("");
@@ -32,6 +37,13 @@ export function SearchTab({ active }: { active: boolean }) {
   const [results, setResults] = useState<SearchEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [editing, setEditing] = useState<SearchEntry | null>(null);
+  const bumpRevision = useAppStore((state) => state.bumpRevision);
+
+  useEffect(() => {
+    setGoalId(goal ? String(goal.id) : "");
+    setEditing(null);
+  }, [goal?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -104,6 +116,19 @@ export function SearchTab({ active }: { active: boolean }) {
 
   const filterCount = [skillId, goalId, from, to, minConfidence].filter(Boolean).length;
   const hasCriteria = query.trim().length > 0 || filterCount > 0;
+
+  async function handleDelete(entryId: number) {
+    try {
+      if (await confirmDeleteEntry(entryId)) {
+        if (editing?.id === entryId) setEditing(null);
+        bumpRevision();
+        notify("Entry deleted");
+      }
+    } catch (error) {
+      console.error("Could not delete entry", error);
+      notify("Could not delete entry", "error");
+    }
+  }
 
   async function openLink(target: string) {
     try {
@@ -210,10 +235,9 @@ export function SearchTab({ active }: { active: boolean }) {
               value={goalId}
               onChange={(event) => setGoalId(event.target.value)}
             >
-              <option value="">All goals</option>
-              {goals.map((goal) => (
-                <option key={goal.id} value={goal.id}>
-                  {goal.title}
+              {goals.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.title}
                 </option>
               ))}
             </Select>
@@ -223,7 +247,7 @@ export function SearchTab({ active }: { active: boolean }) {
             type="button"
             onClick={() => {
               setSkillId("");
-              setGoalId("");
+              setGoalId(goal ? String(goal.id) : "");
               setFrom("");
               setTo("");
               setMinConfidence("");
@@ -265,6 +289,19 @@ export function SearchTab({ active }: { active: boolean }) {
         {results.map((entry) => {
           const title = entry.action ?? entry.learned ?? entry.text;
           const body = entry.action ? entry.learned : null;
+          if (editing?.id === entry.id) {
+            return (
+              <EntryEditor
+                key={entry.id}
+                entry={entry}
+                onCancel={() => setEditing(null)}
+                onSaved={() => {
+                  setEditing(null);
+                  bumpRevision();
+                }}
+              />
+            );
+          }
           return (
             <article
               key={entry.id}
@@ -335,7 +372,21 @@ export function SearchTab({ active }: { active: boolean }) {
                 </div>
               ) : null}
 
-              <div className="mt-1.5">
+              <div className="mt-1.5 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditing(entry)}
+                  className="flex items-center gap-1 text-[9.5px] text-accent hover:underline"
+                >
+                  <PencilIcon className="h-3 w-3" /> Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleDelete(entry.id)}
+                  className="flex items-center gap-1 text-[9.5px] text-muted hover:text-danger"
+                >
+                  <TrashIcon className="h-3 w-3" /> Delete
+                </button>
                 <button
                   type="button"
                   onClick={() =>

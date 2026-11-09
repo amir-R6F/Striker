@@ -9,6 +9,9 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:db": "vitest run tests/db",
+    "check": "tsc --noEmit && vitest run && vite build",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
@@ -34,7 +37,8 @@
     "@vitejs/plugin-react": "^6.2.1",
     "tailwindcss": "^4.3.5",
     "typescript": "~5.9.3",
-    "vite": "^8.3.6"
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
   },
   "engines": {
     "node": ">=20.19.0"

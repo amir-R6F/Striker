@@ -45,11 +45,24 @@ Quick-log templates fill the structure in one click:
 Templates reset the fields they own (action, learned, difficulty, minutes) and keep
 your selected skills. `Ctrl + Enter` saves without leaving the textarea.
 
+### Editing and deleting
+
+- **Edit** any entry from the Log tab's recent list or from Search. The editor
+  reuses the quick-log fields and templates and saves the entry in place.
+- Saving updates the entry row, replaces its skill-node links and rewrites its
+  evidence rows inside one SQLite transaction.
+- **Delete** asks for confirmation, unlinks `entry_skill_nodes`, removes milestone
+  membership and clears the entry from flashcards. Copied evidence files are only
+  deleted when a second prompt is accepted.
+- Attachment labels can be renamed, reordered and removed in the editor.
+- Flashcards can be edited from **All cards** without deleting and recreating them.
+
 ### Search
 
 A dedicated Search tab looks across action, learned, difficulty, legacy notes,
 source and evidence. Filters cover skill node (including all descendants), date
-range, minimum confidence and goal. Matches are highlighted, and source/evidence
+range, minimum confidence and goal. Search defaults to the active goal; the goal
+filter can be pointed at another goal. Matches are highlighted, and source/evidence
 links open in the Windows shell.
 
 ### Skill roadmap
@@ -145,14 +158,32 @@ image previews. Existing single-path evidence is migrated into the portfolio.
 
 ### Smart reminders
 
-- At most one gentle tray notification per day, and only while the widget is
-  visible.
+- A single Rust background task checks once a day around the hour you choose in
+  Settings → Reminders, plus a Sunday weekly-review nudge. It never wakes the
+  WebView and there is no JavaScript polling.
 - After two days without an entry, a quiet nudge to log ten focused minutes.
 - After three consecutive days of only watching/reading, suggests one hands-on
   exercise instead of more input.
 - On Sunday, prompts the weekly review when this week has no saved review.
-- Priority is weekly review → passive streak → inactivity. **Do not disturb**
-  silences everything; both toggles live in Settings → Reminders.
+- Priority is weekly review → passive streak → inactivity, so only one toast goes
+  out per day. Each category fires at most once per day (recorded in `settings`)
+  and has its own toggle.
+- The scheduler reads `striker.db` read-only, respects **Do not disturb**, and
+  sends a Windows toast through `tauri-plugin-notification`.
+
+### Multiple goals and onboarding
+
+- First launch opens a single onboarding screen: goal title, weekly hours target
+  and success criteria. **Start** creates the goal and imports the bundled example
+  roadmap from `src/assets/example-roadmap.json`.
+- Goals are not exclusive. The header switcher changes the active goal, and Log,
+  Dashboard, Search, Review and Skills all scope to it. The default goal used at
+  launch is set in Settings → Goal.
+- Goals can be archived from Settings; archiving hides them from the switcher and
+  the fallback order but keeps every entry, milestone and roadmap. New goals can be
+  added from Settings → Goal.
+- Existing single-goal databases are migrated in place: migration 44 creates a
+  default goal only when entries exist without a goal row.
 
 ### Optional AI weekly summary
 
@@ -281,9 +312,21 @@ Useful scripts:
 ```powershell
 npm run dev        # Vite only (browser preview, no SQLite/Tauri APIs)
 npm run typecheck  # tsc --noEmit
+npm test           # Vitest: pure logic + SQLite integration
+npm run test:db    # only the node:sqlite migration/integration suite
+npm run check      # typecheck, tests and production build in sequence
 npm run build      # typecheck + production frontend build
 npm run tauri:build
 ```
+
+The DB suite extracts the real migration SQL from `src-tauri/src/lib.rs`, applies
+it to an in-memory `node:sqlite` database through a small `plugin-sql` shim, and
+exercises entry CRUD, evidence links, milestones, roadmap import modes and
+backup/restore — no mocks and no Tauri runtime required.
+
+Manual Windows checks (tray, hotkey, transparency, migrations, evidence folder
+permissions, notification prompts) live in
+[docs/WINDOWS_CHECKLIST.md](docs/WINDOWS_CHECKLIST.md).
 
 ## Building the Windows installer
 
@@ -303,8 +346,8 @@ first run.
 
 ## Using Striker
 
-1. **First run** — create a goal: title, description, start date, weekly hours and
-   success criteria. Striker tracks one active goal.
+1. **First run** — the onboarding screen asks for a goal title, weekly hours
+   target and success criteria, then seeds an editable example roadmap.
 2. **Log** — pick a template or fill Action / Learned, tag skill nodes, and
    optionally open details for difficulty, source, evidence, minutes and
    confidence. Use **Attach file** for images/PDFs or paste a link/path into
@@ -318,8 +361,9 @@ first run.
    milestones, evidence gallery and skill charts. Click a milestone to edit it,
    mark it complete, or filter the gallery to it; use **Add** to create one.
 6. **Review** — navigate weeks and save your summary, plan and open questions.
-7. **Settings** — theme, auto-start, idle hiding, gamification, Pomodoro lengths,
-   AI provider/key, encrypted sync, encryption status, report generation and data
+7. **Settings** — theme, auto-start, idle hiding, reminder categories and hour,
+   gamification, Pomodoro lengths, default/archived goals, AI provider/key,
+   encrypted sync, encryption status, report generation, database backup and data
    export.
 
 ### Hotkey notes
@@ -340,7 +384,7 @@ Schema (migrations in `src-tauri/src/lib.rs`):
 
 | Table | Columns |
 | --- | --- |
-| `goals` | `id`, `title`, `description`, `start_date`, `weekly_hours_goal`, `success_criteria`, `created_at` |
+| `goals` | `id`, `title`, `description`, `start_date`, `weekly_hours_goal`, `success_criteria`, `archived_at`, `created_at` |
 | `entries` | `id`, `goal_id`, `date`, `text`, `action`, `learned`, `difficulty`, `source`, `evidence`, `minutes`, `confidence`, `skill_tag`, `created_at` |
 | `skill_trees` | `id`, `goal_id`, `title`, `description`, `source`, `schema_version`, `created_at`, `updated_at` |
 | `skill_nodes` | `id`, `tree_id`, `external_id`, `parent_id`, `title`, `description`, `order_index`, `tags`, `estimated_hours`, `resources_json`, `created_at`, `updated_at` |
@@ -349,7 +393,7 @@ Schema (migrations in `src-tauri/src/lib.rs`):
 | `entry_skills` | Legacy entry links (`entry_id`, `skill_id`) retained for old backups |
 | `milestones` | `id`, `goal_id`, `title`, `description`, `target_date`, `target_minutes`, `completed_at`, `created_at` |
 | `milestone_entries` | `milestone_id`, `entry_id` |
-| `entry_evidence` | `id`, `entry_id`, `kind`, `path`, `original_name`, `created_at` |
+| `entry_evidence` | `id`, `entry_id`, `kind`, `path`, `original_name`, `position`, `created_at` |
 | `weekly_reviews` | `id`, `goal_id`, `week_start`, `summary`, `next_week_plan`, `open_questions` |
 | `flashcards` | `id`, `goal_id`, `entry_id`, `front`, `back`, `due_date`, `interval_days`, `ease`, `repetitions`, `lapses`, `last_reviewed_at`, `created_at` |
 | `settings` | `key`, `value` |
@@ -357,7 +401,18 @@ Schema (migrations in `src-tauri/src/lib.rs`):
 Attached files live under the Tauri app-data folder, in `evidence/`. Paths are
 stored in `entry_evidence`; the legacy `entries.evidence` column mirrors the first
 attachment for search and CSV compatibility. Existing evidence paths are migrated
-into `entry_evidence` by migration 25.
+into `entry_evidence` by migration 25, and `position` preserves the manual order.
+
+### Backup flow
+
+- Before any pending migration, a first-registered Tauri plugin copies
+  `striker.db` to `striker.db.bak-YYYYMMDD-HHMMSS` next to the database. Only the
+  five newest automatic backups are kept, and nothing is copied when the schema is
+  already current.
+- **Settings → Data → Backup database now** copies the live database into an
+  absolute folder you enter, using SQLite's backup API (`striker-backup-*.db`), so
+  committed WAL pages are included. This is a raw `.db` copy; use the encrypted
+  sync backup when you need the file to be protected.
 
 `entries.text` and `entries.skill_tag` are legacy columns from the first version.
 New entries write `text` as a fallback (learned, else action) and `skill_tag` as the
@@ -408,6 +463,9 @@ in Settings.
 
 ## Performance design
 
+- Reminders are one Rust `tokio::time::sleep` loop. It opens SQLite read-only at the
+  chosen hour, writes a settings row only after showing a toast, and never wakes or
+  re-renders the WebView. The old 15-minute JavaScript interval is gone.
 - A single idle timeout exists only while the window is visible; hiding the window
   clears it and showing re-arms it.
 - Rust emits `striker://visibility` on every show/hide; the UI pauses work when
@@ -420,10 +478,9 @@ in Settings.
   background aggregation or tree polling.
 - The report module, jsPDF and its rendering chunks load only when a report or
   full export is generated.
-- Outside a running Pomodoro, the only recurring timer is the smart-reminder
-  check: every 15 minutes, only while the window is visible, reminders are enabled
-  and do-not-disturb is off. It stops on hide and becomes a no-op once today’s
-  notification is sent.
+- Outside a running Pomodoro, the only recurring task is the Rust reminder loop:
+  one sleep until the configured hour, one read-only database check, then back to
+  sleep. It does not run a JavaScript timer, re-render the UI or wake the WebView.
 - Score, XP, badges and challenge progress are derived from data already loaded by
   the dashboard; reports and cards are generated on demand.
 - The Pomodoro interval exists only while the timer is running and the window is
@@ -536,18 +593,22 @@ writes only to the absolute folder the user chooses and caps files at 32 MB.
 | Evidence image is blank in the gallery | The file must still exist under the app-data `evidence` folder; legacy paths outside it cannot be previewed. |
 | PDF report has no image thumbnails | Only PNG/JPEG evidence can be embedded; other formats are listed in the gallery. |
 | PDF export reports a size error | PDFs are capped at 32 MB; reduce embedded evidence or export Markdown. |
-| No reminder notification appears | Check Settings → Reminders and Windows notification permission for Striker. Reminders never run while hidden, during do-not-disturb, or twice in one day. |
+| No reminder notification appears | Check Settings → Reminders, the chosen hour and Windows notification permission for Striker. The app must be running (tray is enough) at that hour; do-not-disturb and per-category toggles still apply. |
 | `Port 1420 is already in use` | Stop the other Vite instance or change the port in `vite.config.ts` **and** `devUrl`. |
 | Tray icon missing | Windows hides overflow icons by default; drag it out of the tray overflow. |
 | Installer warns about an unknown publisher | Expected for unsigned builds. |
 
 ## MVP limitations
 
-- Reminders only run while the widget is open; there is no background scheduler.
-- One active goal at a time (no switching/archiving UI). Monthly/quarterly reports
-  use the active goal; full-data exports include every goal.
-- Entries cannot be edited or deleted after logging; skills and evidence are chosen
-  at log time. Removing a pending attachment does not delete the copied file.
+- The reminder loop checks at one configured hour per day; changing the hour takes
+  effect on the next sleep cycle, and Striker must be running (tray is enough) at
+  that hour.
+- Archived goals disappear from the switcher and have no unarchive control in the
+  UI; their rows and links stay intact for exports and reports.
+- Only copies inside the app-data `evidence/` folder can be deleted from disk;
+  linked paths elsewhere are unlinked from the entry and left alone.
+- Monthly/quarterly reports use the active goal; full-data exports include every
+  goal.
 - Evidence files are capped at 8 MB and only PNG/JPEG images are embedded in PDF
   reports; all evidence is listed in Markdown.
 - Milestone completion is manual (from the milestone editor), which is what drives

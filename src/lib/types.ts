@@ -5,6 +5,8 @@ export interface Goal {
   start_date: string;
   weekly_hours_goal: number;
   success_criteria: string | null;
+  /** Local date when the goal was archived; archived goals keep all data. */
+  archived_at: string | null;
   created_at: string;
 }
 
@@ -108,13 +110,18 @@ export interface Evidence {
   kind: EvidenceKind;
   path: string;
   original_name: string | null;
+  /** Manual ordering inside an entry; lower values render first. */
+  position: number;
   created_at: string;
 }
 
 export interface EvidenceInput {
+  /** Existing attachment id, omitted for newly attached files. */
+  id?: number;
   kind: EvidenceKind;
   path: string;
   originalName: string | null;
+  position?: number;
 }
 
 export interface EvidenceWithEntry extends Evidence {

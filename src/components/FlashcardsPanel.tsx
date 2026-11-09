@@ -21,7 +21,13 @@ import type {
   FlashcardWithEntry,
 } from "../lib/types";
 import { useAppStore } from "../store/useAppStore";
-import { ChevronDownIcon, PlusIcon, SparkIcon, TrashIcon } from "./icons";
+import {
+  ChevronDownIcon,
+  PencilIcon,
+  PlusIcon,
+  SparkIcon,
+  TrashIcon,
+} from "./icons";
 import { EmptyGoal } from "./GoalSetup";
 import {
   Button,
@@ -61,6 +67,7 @@ export function FlashcardsPanel({ active }: { active: boolean }) {
 
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<CardForm>(EMPTY_FORM);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
 
@@ -128,6 +135,7 @@ export function FlashcardsPanel({ active }: { active: boolean }) {
     setSaving(true);
     try {
       await saveFlashcard({
+        id: editingId ?? undefined,
         goalId: goal.id,
         entryId: form.entryId ? Number(form.entryId) : null,
         front,
@@ -135,8 +143,9 @@ export function FlashcardsPanel({ active }: { active: boolean }) {
       });
       setForm(EMPTY_FORM);
       setFormOpen(false);
+      setEditingId(null);
       bumpRevision();
-      notify("Card added");
+      notify(editingId != null ? "Card updated" : "Card added");
     } catch (error) {
       console.error("Could not save flashcard", error);
       notify("Could not save card", "error");
@@ -180,9 +189,24 @@ export function FlashcardsPanel({ active }: { active: boolean }) {
     }
   }
 
+  function startEdit(card: FlashcardWithEntry) {
+    setEditingId(card.id);
+    setForm({
+      front: card.front,
+      back: card.back,
+      entryId: card.entry_id != null ? String(card.entry_id) : "",
+    });
+    setFormOpen(true);
+  }
+
   async function handleDelete(id: number) {
     try {
       await deleteFlashcard(id);
+      if (editingId === id) {
+        setEditingId(null);
+        setForm(EMPTY_FORM);
+        setFormOpen(false);
+      }
       bumpRevision();
       notify("Card deleted");
     } catch (error) {
@@ -206,7 +230,10 @@ export function FlashcardsPanel({ active }: { active: boolean }) {
         <Button
           variant="subtle"
           className="h-7 px-2 text-[11px]"
-          onClick={() => setFormOpen((open) => !open)}
+          onClick={() => {
+            if (formOpen) setEditingId(null);
+            setFormOpen((open) => !open);
+          }}
           aria-expanded={formOpen}
         >
           <PlusIcon className="h-3.5 w-3.5" />
@@ -217,6 +244,9 @@ export function FlashcardsPanel({ active }: { active: boolean }) {
       {formOpen ? (
         <form onSubmit={(event) => void handleSave(event)}>
           <Card className="space-y-2.5">
+            <p className="text-[11px] font-medium text-muted">
+              {editingId != null ? "Edit card" : "New card"}
+            </p>
             <Field label="Front" htmlFor="card-front" hint="prompt">
               <TextArea
                 id="card-front"
@@ -264,7 +294,11 @@ export function FlashcardsPanel({ active }: { active: boolean }) {
                 className="h-8 flex-1 text-[12px]"
                 disabled={saving}
               >
-                {saving ? "Saving…" : "Save card"}
+                {saving
+                  ? "Saving…"
+                  : editingId != null
+                    ? "Save changes"
+                    : "Save card"}
               </Button>
               <Button
                 type="button"
@@ -273,6 +307,7 @@ export function FlashcardsPanel({ active }: { active: boolean }) {
                 onClick={() => {
                   setForm(EMPTY_FORM);
                   setFormOpen(false);
+                  setEditingId(null);
                 }}
               >
                 Cancel
@@ -447,6 +482,13 @@ export function FlashcardsPanel({ active }: { active: boolean }) {
                         : ""}
                     </p>
                   </div>
+                  <IconButton
+                    label={`Edit card: ${card.front.slice(0, 40)}`}
+                    className="h-6 w-6"
+                    onClick={() => startEdit(card)}
+                  >
+                    <PencilIcon className="h-3.5 w-3.5" />
+                  </IconButton>
                   <IconButton
                     label={`Delete card: ${card.front.slice(0, 40)}`}
                     className="h-6 w-6"
