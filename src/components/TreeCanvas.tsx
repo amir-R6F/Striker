@@ -1,4 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  BaseEdge,
+  Handle,
+  Position,
+  ReactFlow,
+  getSmoothStepPath,
+  type Edge,
+  type EdgeProps,
+  type Node,
+  type NodeProps,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
 import {
   CARD_TOP,
   NODE_H,
@@ -6,7 +18,6 @@ import {
   RING_CY,
   RING_R,
   layoutTree,
-  type TreeLayoutEdge,
 } from "../lib/treeLayout";
 import { showCounts as showCountsSetting } from "../lib/settings";
 import type { NodeView } from "../lib/types";
@@ -17,8 +28,175 @@ const SELECTED = "hsl(200, 80%, 60%)";
 const BLUE = "hsl(200, 70%, 55%)";
 const GREEN = "hsl(140, 60%, 45%)";
 const CIRCUMFERENCE = 2 * Math.PI * RING_R;
+const NODE_HEIGHT = CARD_TOP + NODE_H;
 
-export function TreeCanvas() {
+interface TreeNodeData extends Record<string, unknown> {
+  nodeId: string;
+  node: NodeView;
+  percent: number;
+  strikeCount: number;
+  selected: boolean;
+  pulse: boolean;
+  struckRecently: boolean;
+  hasChildren: boolean;
+  expanded: boolean;
+  showCounts: boolean;
+  onActivate: () => void;
+}
+
+type MiniFlowNode = Node<TreeNodeData, "mini">;
+
+function TreeNodeCard({ data }: NodeProps<MiniFlowNode>) {
+  const percent = Math.max(0, Math.min(100, data.percent));
+  const color = percent >= 100 ? GREEN : BLUE;
+  const dimmed =
+    data.hasChildren && !data.expanded && data.percent === 0;
+  const action = data.hasChildren
+    ? `${data.expanded ? "Collapse" : "Expand"} ${data.node.title}`
+    : `${data.selected ? "Uncheck" : "Check"} ${data.node.title}`;
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={action}
+      aria-expanded={data.hasChildren ? data.expanded : undefined}
+      aria-pressed={data.hasChildren ? undefined : data.selected}
+      onClick={(event) => {
+        event.stopPropagation();
+        data.onActivate();
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        event.stopPropagation();
+        data.onActivate();
+      }}
+      className={cx(
+        "tree-node-card relative cursor-pointer outline-none",
+        data.selected && "tree-node-selected",
+        data.pulse && "tree-node-pulse",
+      )}
+      style={{ width: NODE_W, height: NODE_HEIGHT }}
+    >
+      <svg
+        width={NODE_W}
+        height={CARD_TOP}
+        viewBox={`0 0 ${NODE_W} ${CARD_TOP}`}
+        className="block overflow-visible text-ink"
+        aria-hidden="true"
+      >
+        <circle
+          cx={NODE_W / 2}
+          cy={RING_CY}
+          r={RING_R}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={3}
+          strokeOpacity={dimmed ? 0.12 : 0.2}
+        />
+        {percent > 0 ? (
+          <circle
+            cx={NODE_W / 2}
+            cy={RING_CY}
+            r={RING_R}
+            fill="none"
+            stroke={color}
+            strokeWidth={3}
+            strokeLinecap="round"
+            strokeDasharray={`${(percent / 100) * CIRCUMFERENCE} ${CIRCUMFERENCE}`}
+            transform={`rotate(-90 ${NODE_W / 2} ${RING_CY})`}
+          />
+        ) : null}
+        {data.struckRecently ? (
+          <circle
+            cx={NODE_W / 2}
+            cy={RING_CY - RING_R - 2.5}
+            r={2.4}
+            fill="var(--accent)"
+          />
+        ) : null}
+      </svg>
+
+      <div
+        className={cx(
+          "tree-node-body absolute inset-x-0 rounded-xl border bg-card transition",
+          "hover:brightness-105",
+          data.selected
+            ? "border-[hsl(200,80%,60%)] shadow-[0_0_6px_hsl(200,80%,60%)]"
+            : "border-line",
+        )}
+        style={{ top: CARD_TOP, height: NODE_H }}
+      >
+        <p className="line-clamp-2 px-2 pt-[13px] text-center text-[11px] font-medium leading-[1.25]">
+          {data.node.title}
+        </p>
+
+        {data.hasChildren ? (
+          <span
+            aria-hidden="true"
+            className="absolute right-1.5 top-1 text-[9px] leading-none text-muted"
+          >
+            {data.expanded ? "▾" : "▸"}
+          </span>
+        ) : null}
+
+        {data.showCounts && data.strikeCount > 0 ? (
+          <span className="absolute bottom-1 right-1.5 rounded-full border border-line bg-card2 px-1.5 py-px text-[8px] font-semibold leading-[11px] text-muted">
+            ×{data.strikeCount}
+          </span>
+        ) : null}
+      </div>
+
+      <Handle
+        type="target"
+        position={Position.Top}
+        isConnectable={false}
+        className="!pointer-events-none !h-1.5 !w-1.5 !border-0 !bg-accent"
+        style={{ top: CARD_TOP }}
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        isConnectable={false}
+        className="!pointer-events-none !h-1.5 !w-1.5 !border-0 !bg-accent"
+        style={{ bottom: 0 }}
+      />
+    </div>
+  );
+}
+
+const NODE_TYPES = { mini: TreeNodeCard };
+
+function TreeEdge({
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  data,
+}: EdgeProps) {
+  const [path] = getSmoothStepPath({
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+  });
+  return (
+    <BaseEdge
+      path={path}
+      className={cx("tree-edge-path", Boolean(data?.flash) && "tree-edge-flash")}
+      style={{ stroke: "var(--line)", strokeWidth: 1.5, strokeOpacity: 0.55 }}
+    />
+  );
+}
+
+const EDGE_TYPES = { tree: TreeEdge };
+
+export default function TreeCanvas() {
   const roots = useMiniStore((state) => state.roots);
   const flat = useMiniStore((state) => state.flat);
   const treeId = useMiniStore((state) => state.activeTreeId);
@@ -28,9 +206,9 @@ export function TreeCanvas() {
     showCountsSetting(state.settings),
   );
   const strikePulse = useMiniStore((state) => state.strikePulse);
-  const [viewportWidth, setViewportWidth] = useState(0);
+  const toggleNode = useMiniStore((state) => state.toggleNode);
+  const toggleExpand = useMiniStore((state) => state.toggleExpand);
   const [pulsing, setPulsing] = useState<Set<string>>(new Set());
-  const containerRef = useRef<HTMLDivElement>(null);
 
   const expanded = useMemo(
     () =>
@@ -45,21 +223,9 @@ export function TreeCanvas() {
   );
 
   const layout = useMemo(
-    // Viewport width is included because the wrapper's usable width decides
-    // whether the SVG scrolls, even though positions are content-driven.
     () => layoutTree(roots, expanded),
-    [treeId, roots, expanded, viewportWidth],
+    [roots, expanded],
   );
-
-  useEffect(() => {
-    const element = containerRef.current;
-    if (!element) return;
-    const measure = () => setViewportWidth(element.clientWidth);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
 
   useEffect(() => {
     if (!strikePulse) return;
@@ -68,285 +234,79 @@ export function TreeCanvas() {
     return () => window.clearTimeout(timeout);
   }, [strikePulse]);
 
-  const svgWidth = Math.max(layout.width, Math.max(0, viewportWidth - 24));
-  const overflow = layout.width > Math.max(0, viewportWidth - 24);
-  const height = Math.max(layout.height, 120);
+  const flowNodes = useMemo<MiniFlowNode[]>(
+    () =>
+      layout.nodes.map(({ node, x, y }) => ({
+        id: node.id,
+        type: "mini",
+        position: { x, y },
+        data: {
+          nodeId: node.id,
+          node,
+          percent: node.percent,
+          strikeCount: node.strike_count,
+          selected: draft.has(node.id),
+          pulse: pulsing.has(node.id),
+          struckRecently: Boolean(node.recent),
+          hasChildren: node.children.length > 0,
+          expanded: expanded.has(node.id),
+          showCounts,
+          onActivate: () => {
+            if (node.children.length > 0) toggleExpand(node.id);
+            else toggleNode(node.id);
+          },
+        },
+      })),
+    [layout, draft, expanded, pulsing, showCounts, toggleExpand, toggleNode],
+  );
+
+  const flowEdges = useMemo<Edge[]>(
+    () =>
+      layout.edges.map((edge) => ({
+        id: `${edge.parentId}-${edge.childId}`,
+        source: edge.parentId,
+        target: edge.childId,
+        type: "tree",
+        animated: false,
+        data: {
+          flash:
+            pulsing.has(edge.parentId) || pulsing.has(edge.childId),
+        },
+      })),
+    [layout, pulsing],
+  );
 
   return (
-    <div className="relative h-full min-h-0">
-      <div
-        ref={containerRef}
-        className="tree-scroll h-full overflow-auto px-3 pb-5 pt-1"
-      >
-        <svg
-          width={svgWidth}
-          height={height}
-          viewBox={`0 0 ${svgWidth} ${height}`}
-          className="block overflow-visible text-ink"
-          aria-label="Skill tree"
-        >
-          <g className="tree-edges">
-            {layout.edges.map((edge) => (
-              <TreeEdge
-                key={`${edge.parentId}-${edge.childId}`}
-                edge={edge}
-                flashing={
-                  pulsing.has(edge.parentId) || pulsing.has(edge.childId)
-                }
-              />
-            ))}
-          </g>
-          <g className="tree-nodes">
-            {layout.nodes.map(({ node, x, y }) => (
-              <TreeNode
-                key={node.id}
-                node={node}
-                x={x}
-                y={y}
-                expanded={expanded.has(node.id)}
-                selected={draft.has(node.id)}
-                pulsing={pulsing.has(node.id)}
-                showCounts={showCounts}
-              />
-            ))}
-          </g>
-        </svg>
-      </div>
-      {overflow ? (
-        <>
-          <div className="pointer-events-none absolute inset-y-0 left-0 w-4 bg-gradient-to-r from-bg to-transparent" />
-          <div className="pointer-events-none absolute inset-y-0 right-0 w-4 bg-gradient-to-l from-bg to-transparent" />
-        </>
-      ) : null}
+    <div className="mini-flow h-full min-h-0 w-full">
+      <ReactFlow
+        key={treeId ?? "empty"}
+        nodes={flowNodes}
+        edges={flowEdges}
+        nodeTypes={NODE_TYPES}
+        edgeTypes={EDGE_TYPES}
+        nodesDraggable={false}
+        nodesConnectable={false}
+        nodesFocusable={false}
+        elementsSelectable={false}
+        selectionOnDrag={false}
+        panOnDrag
+        zoomOnScroll
+        zoomOnPinch
+        minZoom={0.6}
+        maxZoom={1.4}
+        fitView
+        fitViewOptions={{ padding: 0.2 }}
+        onInit={(instance) => {
+          window.requestAnimationFrame(() => {
+            void instance.fitView({ padding: 0.2, duration: 300 });
+          });
+        }}
+        onNodeClick={(_, node) => {
+          const data = node.data as TreeNodeData;
+          data.onActivate();
+        }}
+        style={{ background: "transparent" }}
+      />
     </div>
   );
-}
-
-function TreeEdge({
-  edge,
-  flashing,
-}: {
-  edge: TreeLayoutEdge;
-  flashing: boolean;
-}) {
-  const mid = (edge.y1 + edge.y2) / 2;
-  return (
-    <path
-      d={`M ${edge.x1},${edge.y1} C ${edge.x1},${mid} ${edge.x2},${mid} ${edge.x2},${edge.y2}`}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.5}
-      strokeOpacity={0.35}
-      className={cx("tree-edge", flashing && "tree-edge-flash")}
-    />
-  );
-}
-
-function TreeNode({
-  node,
-  x,
-  y,
-  expanded,
-  selected,
-  pulsing,
-  showCounts,
-}: {
-  node: NodeView;
-  x: number;
-  y: number;
-  expanded: boolean;
-  selected: boolean;
-  pulsing: boolean;
-  showCounts: boolean;
-}) {
-  const toggleExpand = useMiniStore((state) => state.toggleExpand);
-  const toggleNode = useMiniStore((state) => state.toggleNode);
-
-  const isParent = node.children.length > 0;
-  const emptyParent = isParent && !expanded && node.percent === 0;
-  const percent = Math.max(0, Math.min(100, node.percent));
-  const color = percent >= 100 ? GREEN : BLUE;
-  const lines = splitTitle(node.title);
-  const [line1, line2] = lines;
-  const action = isParent
-    ? `${expanded ? "Collapse" : "Expand"} ${node.title}`
-    : `${selected ? "Uncheck" : "Check"} ${node.title}`;
-
-  const activate = () => {
-    if (isParent) toggleExpand(node.id);
-    else toggleNode(node.id);
-  };
-
-  return (
-    <g
-      transform={`translate(${x}, ${y})`}
-      role="button"
-      tabIndex={0}
-      aria-label={action}
-      aria-expanded={isParent ? expanded : undefined}
-      aria-pressed={isParent ? undefined : selected}
-      onClick={activate}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        activate();
-      }}
-      className={cx(
-        "tree-node cursor-pointer",
-        selected && "tree-node-selected",
-        pulsing && "tree-node-pulse",
-        emptyParent && "tree-node-empty",
-      )}
-    >
-      <g className="tree-node-scale">
-        <circle
-        cx={NODE_W / 2}
-        cy={RING_CY}
-        r={RING_R}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={3}
-        strokeOpacity={emptyParent ? 0.12 : 0.2}
-      />
-      {percent > 0 ? (
-        <circle
-          cx={NODE_W / 2}
-          cy={RING_CY}
-          r={RING_R}
-          fill="none"
-          stroke={color}
-          strokeWidth={3}
-          strokeLinecap="round"
-          strokeDasharray={`${(percent / 100) * CIRCUMFERENCE} ${CIRCUMFERENCE}`}
-          transform={`rotate(-90 ${NODE_W / 2} ${RING_CY})`}
-        />
-      ) : null}
-
-      {node.recent && !emptyParent ? (
-        <circle
-          cx={NODE_W / 2}
-          cy={RING_CY - RING_R + 1}
-          r={2.4}
-          fill="var(--accent)"
-        />
-      ) : null}
-
-      <rect
-        className="tree-card"
-        x={0}
-        y={CARD_TOP}
-        width={NODE_W}
-        height={NODE_H}
-        rx={12}
-        fill="var(--card)"
-        stroke={selected ? SELECTED : "var(--border)"}
-        strokeWidth={selected ? 1.6 : 1}
-      />
-
-      <text
-        textAnchor="middle"
-        fill="var(--ink)"
-        fontSize={11}
-        fontWeight={500}
-        className="pointer-events-none"
-      >
-        {line2 ? (
-          <>
-            <tspan x={NODE_W / 2} y={CARD_TOP + 27}>
-              {line1}
-            </tspan>
-            <tspan x={NODE_W / 2} y={CARD_TOP + 41}>
-              {line2}
-            </tspan>
-          </>
-        ) : (
-          <tspan x={NODE_W / 2} y={CARD_TOP + 36}>
-            {line1}
-          </tspan>
-        )}
-      </text>
-
-      {isParent ? (
-        <path
-          d={
-            expanded
-              ? "M82 45 l8 0 l-4 6 z"
-              : "M83 44 l6 4 l-6 4 z"
-          }
-          fill="currentColor"
-          opacity={0.5}
-          className="pointer-events-none"
-        />
-      ) : null}
-
-      {showCounts && node.strike_count > 0 && !emptyParent ? (
-        <StrikeBadge
-          count={node.strike_count}
-          x={NODE_W - 4}
-          y={CARD_TOP + NODE_H - 3}
-        />
-        ) : null}
-      </g>
-    </g>
-  );
-}
-
-function StrikeBadge({
-  count,
-  x,
-  y,
-}: {
-  count: number;
-  x: number;
-  y: number;
-}) {
-  const label = `×${count}`;
-  const width = 8 + label.length * 5.2;
-  return (
-    <g transform={`translate(${x - width}, ${y - 12})`} className="pointer-events-none">
-      <rect
-        width={width}
-        height={12}
-        rx={6}
-        fill="var(--card-2)"
-        stroke="var(--border)"
-        strokeWidth={0.6}
-      />
-      <text
-        x={width / 2}
-        y={8.4}
-        textAnchor="middle"
-        fontSize={8}
-        fontWeight={600}
-        fill="var(--muted)"
-      >
-        {label}
-      </text>
-    </g>
-  );
-}
-
-function splitTitle(title: string): [string] | [string, string] {
-  const clean = title.trim().replace(/\s+/g, " ");
-  if (!clean) return ["Untitled"];
-  if (clean.length <= 14) return [clean];
-
-  const words = clean.split(" ");
-  let first = "";
-  const rest: string[] = [];
-  for (const word of words) {
-    if (rest.length === 0) {
-      const candidate = first ? `${first} ${word}` : word;
-      if (candidate.length <= 14) {
-        first = candidate;
-        continue;
-      }
-    }
-    rest.push(word);
-  }
-
-  if (!first) first = clean.slice(0, 13).trimEnd();
-  let second = rest.join(" ");
-  if (second.length > 14) second = `${second.slice(0, 13).trimEnd()}…`;
-  return second ? [first, second] : [first];
 }

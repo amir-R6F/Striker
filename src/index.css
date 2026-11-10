@@ -128,36 +128,25 @@
   }
 }
 
-.tree-node {
+.tree-node-card {
   outline: none;
-  transform-box: fill-box;
-  transform-origin: center;
 }
 
-.tree-node-scale {
-  transform-box: fill-box;
-  transform-origin: center;
-}
-
-.tree-node:hover .tree-card {
-  filter: brightness(1.08);
-}
-
-.tree-node:focus-visible .tree-card {
-  stroke: var(--accent);
-  stroke-width: 2;
+.tree-node-card:focus-visible .tree-node-body {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .tree-node-selected {
   filter: drop-shadow(0 0 6px hsl(200, 80%, 60%));
 }
 
-.tree-node-selected .tree-node-scale,
-.tree-node-pulse .tree-node-scale {
+.tree-node-selected,
+.tree-node-pulse {
   animation: node-pop 300ms ease-out;
 }
 
-.tree-edge {
+.tree-edge-path {
   transition: stroke-opacity 400ms ease-out;
 }
 
@@ -166,6 +155,17 @@
   transition: stroke-opacity 60ms ease-in;
 }
 
-.tree-scroll {
-  scrollbar-gutter: stable;
+.mini-flow .react-flow__pane {
+  background: transparent;
+}
+
+.mini-flow .react-flow__attribution {
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  padding: 1px 4px;
+}
+
+.mini-flow .react-flow__attribution a {
+  color: var(--muted);
+  font-size: 8px;
 }

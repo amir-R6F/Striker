@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { useMiniStore } from "../store/useMiniStore";
 import { formatLongDay } from "../lib/dates";
 import {
@@ -9,8 +9,9 @@ import {
 } from "./icons";
 import { CreateTreeDialog } from "./CreateTreeDialog";
 import { ImportSheet } from "./ImportSheet";
-import { TreeCanvas } from "./TreeCanvas";
 import { Button, IconButton, Select, cx } from "./ui";
+
+const TreeCanvas = lazy(() => import("./TreeCanvas"));
 
 export function FocusScreen() {
   const trees = useMiniStore((state) => state.trees);
@@ -135,7 +136,15 @@ export function FocusScreen() {
             </Button>
           </div>
         ) : (
-          <TreeCanvas />
+          <Suspense
+            fallback={
+              <div className="flex h-full items-center justify-center text-[11px] text-muted">
+                Loading tree…
+              </div>
+            }
+          >
+            <TreeCanvas />
+          </Suspense>
         )}
       </main>
 

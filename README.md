@@ -27,9 +27,9 @@ the reverse. Both use the same JSON schema, so no conversion is needed.
 
 - **Streak** — consecutive days with at least one strike for the selected tree.
 - **Tree switcher** — shows every tree and a ✓ on trees already struck today.
-- **SVG tree** — hand-drawn cards with progress rings and curved edges;
-  branches expand/collapse and leaves are checkable. Branches with a node struck
-  in the last two days start expanded; wide trees scroll horizontally.
+- **React Flow tree** — progress-ring cards on a pan/zoom canvas; branches
+  expand/collapse and leaves are checkable. Branches with a node struck in the
+  last two days start expanded.
 - **Per-node progress** — every strike on a node fills 25% of its ring (four
   strikes fill it). Parent nodes show the recursive average of their children.
 - **Strike** — saves one strike for today with the checked nodes. Minutes are the
@@ -179,7 +179,7 @@ src/
   lib/
     db.ts                 SQLite queries and transactions
     progress.ts           tree progress, streaks, strike minutes
-    treeLayout.ts         pure visible-node SVG layout
+    treeLayout.ts         pure visible-node layout used by React Flow
     roadmap.ts            schema v1 parse/validate/build + AI prompt
     export.ts             JSON export and downloads
     autostart.ts          Windows auto-start bridge
