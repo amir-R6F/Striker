@@ -28,3 +28,11 @@ export function formatLongDay(key: string): string {
     day: "numeric",
   });
 }
+
+export function formatMinutes(total: number): string {
+  const minutes = Math.max(0, Math.round(total));
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
+}

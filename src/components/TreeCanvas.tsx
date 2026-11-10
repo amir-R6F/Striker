@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Background,
   BaseEdge,
+  Controls,
   Handle,
   Position,
   ReactFlow,
@@ -9,31 +11,28 @@ import {
   type EdgeProps,
   type Node,
   type NodeProps,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import {
-  CARD_TOP,
-  NODE_H,
-  NODE_W,
-  RING_CY,
-  RING_R,
-  layoutTree,
-} from "../lib/treeLayout";
+import { formatMinutes } from "../lib/dates";
+import { NODE_W, layoutTree } from "../lib/treeLayout";
 import { showCounts as showCountsSetting } from "../lib/settings";
 import type { NodeView } from "../lib/types";
 import { useMiniStore } from "../store/useMiniStore";
+import { ChevronDownIcon, ChevronRightIcon } from "./icons";
 import { cx } from "./ui";
 
-const SELECTED = "hsl(200, 80%, 60%)";
-const BLUE = "hsl(200, 70%, 55%)";
-const GREEN = "hsl(140, 60%, 45%)";
-const CIRCUMFERENCE = 2 * Math.PI * RING_R;
-const NODE_HEIGHT = CARD_TOP + NODE_H;
+interface Totals {
+  hours: number;
+  strikes: number;
+}
 
 interface TreeNodeData extends Record<string, unknown> {
   nodeId: string;
   node: NodeView;
   percent: number;
+  totalHours: number;
+  totalStrikes: number;
   strikeCount: number;
   selected: boolean;
   pulse: boolean;
@@ -48,9 +47,8 @@ type MiniFlowNode = Node<TreeNodeData, "mini">;
 
 function TreeNodeCard({ data }: NodeProps<MiniFlowNode>) {
   const percent = Math.max(0, Math.min(100, data.percent));
-  const color = percent >= 100 ? GREEN : BLUE;
-  const dimmed =
-    data.hasChildren && !data.expanded && data.percent === 0;
+  const roundedPercent = Math.round(percent);
+  const strikeLabel = data.totalStrikes === 1 ? "strike" : "strikes";
   const action = data.hasChildren
     ? `${data.expanded ? "Collapse" : "Expand"} ${data.node.title}`
     : `${data.selected ? "Uncheck" : "Check"} ${data.node.title}`;
@@ -73,94 +71,81 @@ function TreeNodeCard({ data }: NodeProps<MiniFlowNode>) {
         data.onActivate();
       }}
       className={cx(
-        "tree-node-card relative cursor-pointer outline-none",
-        data.selected && "tree-node-selected",
+        "tree-node-card w-[178px] rounded-xl border bg-card px-2.5 py-2 text-left shadow-sm transition",
+        data.selected
+          ? "tree-node-selected border-accent ring-2 ring-accent/25"
+          : "border-line hover:border-accent/50",
         data.pulse && "tree-node-pulse",
       )}
-      style={{ width: NODE_W, height: NODE_HEIGHT }}
     >
-      <svg
-        width={NODE_W}
-        height={CARD_TOP}
-        viewBox={`0 0 ${NODE_W} ${CARD_TOP}`}
-        className="block overflow-visible text-ink"
-        aria-hidden="true"
-      >
-        <circle
-          cx={NODE_W / 2}
-          cy={RING_CY}
-          r={RING_R}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={3}
-          strokeOpacity={dimmed ? 0.12 : 0.2}
-        />
-        {percent > 0 ? (
-          <circle
-            cx={NODE_W / 2}
-            cy={RING_CY}
-            r={RING_R}
-            fill="none"
-            stroke={color}
-            strokeWidth={3}
-            strokeLinecap="round"
-            strokeDasharray={`${(percent / 100) * CIRCUMFERENCE} ${CIRCUMFERENCE}`}
-            transform={`rotate(-90 ${NODE_W / 2} ${RING_CY})`}
-          />
-        ) : null}
-        {data.struckRecently ? (
-          <circle
-            cx={NODE_W / 2}
-            cy={RING_CY - RING_R - 2.5}
-            r={2.4}
-            fill="var(--accent)"
-          />
-        ) : null}
-      </svg>
-
-      <div
-        className={cx(
-          "tree-node-body absolute inset-x-0 rounded-xl border bg-card transition",
-          "hover:brightness-105",
-          data.selected
-            ? "border-[hsl(200,80%,60%)] shadow-[0_0_6px_hsl(200,80%,60%)]"
-            : "border-line",
-        )}
-        style={{ top: CARD_TOP, height: NODE_H }}
-      >
-        <p className="line-clamp-2 px-2 pt-[13px] text-center text-[11px] font-medium leading-[1.25]">
-          {data.node.title}
-        </p>
-
-        {data.hasChildren ? (
-          <span
-            aria-hidden="true"
-            className="absolute right-1.5 top-1 text-[9px] leading-none text-muted"
-          >
-            {data.expanded ? "▾" : "▸"}
-          </span>
-        ) : null}
-
-        {data.showCounts && data.strikeCount > 0 ? (
-          <span className="absolute bottom-1 right-1.5 rounded-full border border-line bg-card2 px-1.5 py-px text-[8px] font-semibold leading-[11px] text-muted">
-            ×{data.strikeCount}
-          </span>
-        ) : null}
-      </div>
-
       <Handle
         type="target"
         position={Position.Top}
         isConnectable={false}
         className="!pointer-events-none !h-1.5 !w-1.5 !border-0 !bg-accent"
-        style={{ top: CARD_TOP }}
       />
+
+      <div className="flex items-start gap-1">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-1">
+            <p className="min-w-0 flex-1 truncate text-[11.5px] font-semibold leading-snug">
+              {data.node.title}
+            </p>
+            {data.struckRecently ? (
+              <span
+                aria-label="Struck in the last two days"
+                title="Struck in the last two days"
+                className="h-1.5 w-1.5 shrink-0 rounded-full bg-success"
+              />
+            ) : null}
+          </div>
+          <p className="mt-0.5 text-[9px] tabular-nums text-muted">
+            {formatMinutes(data.totalHours * 60)} · {data.totalStrikes}{" "}
+            {strikeLabel}
+          </p>
+        </div>
+
+        {data.hasChildren ? (
+          <button
+            type="button"
+            aria-label={data.expanded ? "Collapse node" : "Expand node"}
+            className="nodrag -mr-1 -mt-1 grid h-6 w-6 shrink-0 place-items-center rounded-md text-muted hover:bg-card2 hover:text-ink"
+            onClick={(event) => {
+              event.stopPropagation();
+              data.onActivate();
+            }}
+          >
+            {data.expanded ? (
+              <ChevronDownIcon className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRightIcon className="h-3.5 w-3.5" />
+            )}
+          </button>
+        ) : null}
+      </div>
+
+      <div className="mt-1.5 flex items-center gap-1.5">
+        <div className="h-1 flex-1 overflow-hidden rounded-full bg-card2">
+          <div
+            className="h-full rounded-full bg-accent"
+            style={{ width: `${roundedPercent}%` }}
+          />
+        </div>
+        {data.showCounts && data.strikeCount > 0 ? (
+          <span className="rounded-full border border-line bg-card2 px-1.5 py-px text-[8px] font-semibold leading-[11px] text-muted">
+            ×{data.strikeCount}
+          </span>
+        ) : null}
+        <span className="text-[8.5px] tabular-nums text-muted">
+          {roundedPercent}%
+        </span>
+      </div>
+
       <Handle
         type="source"
         position={Position.Bottom}
         isConnectable={false}
         className="!pointer-events-none !h-1.5 !w-1.5 !border-0 !bg-accent"
-        style={{ bottom: 0 }}
       />
     </div>
   );
@@ -185,16 +170,31 @@ function TreeEdge({
     sourcePosition,
     targetPosition,
   });
+  const flash = Boolean(data?.flash);
   return (
     <BaseEdge
       path={path}
-      className={cx("tree-edge-path", Boolean(data?.flash) && "tree-edge-flash")}
-      style={{ stroke: "var(--line)", strokeWidth: 1.5, strokeOpacity: 0.55 }}
+      className="tree-edge-path"
+      style={{
+        stroke: flash ? "var(--accent)" : "var(--line)",
+        strokeWidth: flash ? 2 : 1.5,
+      }}
     />
   );
 }
 
 const EDGE_TYPES = { tree: TreeEdge };
+
+function subtreeTotals(node: NodeView): Totals {
+  let hours = Number(node.estimated_hours ?? 0);
+  let strikes = Number(node.strike_count ?? 0);
+  for (const child of node.children) {
+    const childTotals = subtreeTotals(child);
+    hours += childTotals.hours;
+    strikes += childTotals.strikes;
+  }
+  return { hours, strikes };
+}
 
 export default function TreeCanvas() {
   const roots = useMiniStore((state) => state.roots);
@@ -209,6 +209,10 @@ export default function TreeCanvas() {
   const toggleNode = useMiniStore((state) => state.toggleNode);
   const toggleExpand = useMiniStore((state) => state.toggleExpand);
   const [pulsing, setPulsing] = useState<Set<string>>(new Set());
+  const [flow, setFlow] = useState<ReactFlowInstance<
+    MiniFlowNode,
+    Edge
+  > | null>(null);
 
   const expanded = useMemo(
     () =>
@@ -227,6 +231,16 @@ export default function TreeCanvas() {
     [roots, expanded],
   );
 
+  const totals = useMemo(() => {
+    const values = new Map<string, Totals>();
+    const visit = (node: NodeView) => {
+      values.set(node.id, subtreeTotals(node));
+      for (const child of node.children) visit(child);
+    };
+    for (const root of roots) visit(root);
+    return values;
+  }, [roots]);
+
   useEffect(() => {
     if (!strikePulse) return;
     setPulsing(new Set(strikePulse.ids));
@@ -234,30 +248,56 @@ export default function TreeCanvas() {
     return () => window.clearTimeout(timeout);
   }, [strikePulse]);
 
+  useEffect(() => {
+    if (!flow) return;
+    const frame = window.requestAnimationFrame(() => {
+      void flow.fitView({ padding: 0.22, duration: 250 });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [flow, treeId, layout.nodes.length]);
+
   const flowNodes = useMemo<MiniFlowNode[]>(
     () =>
-      layout.nodes.map(({ node, x, y }) => ({
-        id: node.id,
-        type: "mini",
-        position: { x, y },
-        data: {
-          nodeId: node.id,
-          node,
-          percent: node.percent,
-          strikeCount: node.strike_count,
-          selected: draft.has(node.id),
-          pulse: pulsing.has(node.id),
-          struckRecently: Boolean(node.recent),
-          hasChildren: node.children.length > 0,
-          expanded: expanded.has(node.id),
-          showCounts,
-          onActivate: () => {
-            if (node.children.length > 0) toggleExpand(node.id);
-            else toggleNode(node.id);
+      layout.nodes.map(({ node, x, y }) => {
+        const nodeTotals = totals.get(node.id) ?? {
+          hours: Number(node.estimated_hours ?? 0),
+          strikes: Number(node.strike_count ?? 0),
+        };
+        return {
+          id: node.id,
+          type: "mini",
+          position: { x, y },
+          width: NODE_W,
+          data: {
+            nodeId: node.id,
+            node,
+            percent: node.percent,
+            totalHours: nodeTotals.hours,
+            totalStrikes: nodeTotals.strikes,
+            strikeCount: node.strike_count,
+            selected: draft.has(node.id),
+            pulse: pulsing.has(node.id),
+            struckRecently: Boolean(node.recent),
+            hasChildren: node.children.length > 0,
+            expanded: expanded.has(node.id),
+            showCounts,
+            onActivate: () => {
+              if (node.children.length > 0) toggleExpand(node.id);
+              else toggleNode(node.id);
+            },
           },
-        },
-      })),
-    [layout, draft, expanded, pulsing, showCounts, toggleExpand, toggleNode],
+        };
+      }),
+    [
+      layout,
+      totals,
+      draft,
+      expanded,
+      pulsing,
+      showCounts,
+      toggleExpand,
+      toggleNode,
+    ],
   );
 
   const flowEdges = useMemo<Edge[]>(
@@ -277,7 +317,7 @@ export default function TreeCanvas() {
   );
 
   return (
-    <div className="mini-flow h-full min-h-0 w-full">
+    <div className="h-full w-full overflow-hidden rounded-xl border border-line bg-card2/20">
       <ReactFlow
         key={treeId ?? "empty"}
         nodes={flowNodes}
@@ -287,26 +327,20 @@ export default function TreeCanvas() {
         nodesDraggable={false}
         nodesConnectable={false}
         nodesFocusable={false}
-        elementsSelectable={false}
+        elementsSelectable
         selectionOnDrag={false}
         panOnDrag
         zoomOnScroll
         zoomOnPinch
-        minZoom={0.6}
-        maxZoom={1.4}
+        minZoom={0.25}
+        maxZoom={1.8}
         fitView
-        fitViewOptions={{ padding: 0.2 }}
-        onInit={(instance) => {
-          window.requestAnimationFrame(() => {
-            void instance.fitView({ padding: 0.2, duration: 300 });
-          });
-        }}
-        onNodeClick={(_, node) => {
-          const data = node.data as TreeNodeData;
-          data.onActivate();
-        }}
-        style={{ background: "transparent" }}
-      />
+        fitViewOptions={{ padding: 0.22 }}
+        onInit={setFlow}
+      >
+        <Background gap={18} size={1} />
+        <Controls showInteractive={false} />
+      </ReactFlow>
     </div>
   );
 }

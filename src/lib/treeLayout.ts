@@ -1,14 +1,9 @@
 import type { NodeView } from "./types";
 
-export const NODE_W = 96;
-export const NODE_H = 64;
-export const H_GAP = 14;
-export const V_GAP = 44;
-
-// The progress ring sits above the card inside the same vertical cell.
-export const CARD_TOP = 40;
-export const RING_R = 20;
-export const RING_CY = RING_R;
+export const NODE_W = 178;
+export const NODE_H = 60;
+export const H_GAP = 32;
+export const V_GAP = 68;
 
 export interface TreeLayoutNode {
   node: NodeView;
@@ -77,9 +72,9 @@ export function layoutTree(
         parentId: node.id,
         childId: child.node.id,
         x1: item.x + NODE_W / 2,
-        y1: item.y + CARD_TOP + NODE_H,
+        y1: item.y + NODE_H,
         x2: child.x + NODE_W / 2,
-        y2: child.y + CARD_TOP,
+        y2: child.y,
       });
     }
     return item;

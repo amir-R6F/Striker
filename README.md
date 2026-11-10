@@ -27,10 +27,10 @@ the reverse. Both use the same JSON schema, so no conversion is needed.
 
 - **Streak** — consecutive days with at least one strike for the selected tree.
 - **Tree switcher** — shows every tree and a ✓ on trees already struck today.
-- **React Flow tree** — progress-ring cards on a pan/zoom canvas; branches
-  expand/collapse and leaves are checkable. Branches with a node struck in the
-  last two days start expanded.
-- **Per-node progress** — every strike on a node fills 25% of its ring (four
+- **React Flow tree** — Full Striker's dotted pan/zoom canvas and rectangular
+  cards with an internal progress bar; branches expand/collapse and leaves are
+  checkable. Branches with a node struck in the last two days start expanded.
+- **Per-node progress** — every strike on a leaf fills 25% of its bar (four
   strikes fill it). Parent nodes show the recursive average of their children.
 - **Strike** — saves one strike for today with the checked nodes. Minutes are the
   sum of the checked nodes' estimated hours, with a 15-minute fallback.

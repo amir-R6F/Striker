@@ -45,10 +45,18 @@ export function EllipsisIcon(props: IconProps) {
   );
 }
 
+export function ChevronDownIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="m6 9 6 6 6-6" />
+    </Icon>
+  );
+}
+
 export function ChevronRightIcon(props: IconProps) {
   return (
     <Icon {...props}>
-      <path d="m9 6 6 6-6 6" />
+      <path d="m9 5 7 7-7 7" />
     </Icon>
   );
 }
