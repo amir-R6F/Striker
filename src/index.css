@@ -115,3 +115,57 @@
 .streak-pop {
   animation: streak-pop 300ms ease-out;
 }
+
+@keyframes node-pop {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.06);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.tree-node {
+  outline: none;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.tree-node-scale {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.tree-node:hover .tree-card {
+  filter: brightness(1.08);
+}
+
+.tree-node:focus-visible .tree-card {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.tree-node-selected {
+  filter: drop-shadow(0 0 6px hsl(200, 80%, 60%));
+}
+
+.tree-node-selected .tree-node-scale,
+.tree-node-pulse .tree-node-scale {
+  animation: node-pop 300ms ease-out;
+}
+
+.tree-edge {
+  transition: stroke-opacity 400ms ease-out;
+}
+
+.tree-edge-flash {
+  stroke-opacity: 0.9;
+  transition: stroke-opacity 60ms ease-in;
+}
+
+.tree-scroll {
+  scrollbar-gutter: stable;
+}

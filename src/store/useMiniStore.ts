@@ -65,11 +65,13 @@ interface MiniState {
   dbPath: string;
   toast: Toast | null;
   streakPulse: boolean;
+  strikePulse: { ids: string[]; epoch: number } | null;
 
   hydrate: (force?: boolean) => Promise<void>;
   selectTree: (treeId: string) => Promise<void>;
   toggleNode: (nodeId: string) => void;
   toggleExpand: (nodeId: string) => void;
+  collapseAll: () => void;
   beginEdit: () => void;
   strike: () => Promise<void>;
   createTree: (title: string) => Promise<void>;
@@ -183,6 +185,7 @@ export const useMiniStore = create<MiniState>((set, get) => {
       : "sqlite:striker-mini.db",
     toast: null,
     streakPulse: false,
+    strikePulse: null,
 
     hydrate: async (force = false) => {
       if (get().booting && !force) return;
@@ -272,6 +275,16 @@ export const useMiniStore = create<MiniState>((set, get) => {
       set({ collapsed });
     },
 
+    collapseAll: () => {
+      set({
+        collapsed: new Set(
+          get()
+            .flat.filter((node) => node.children.length > 0)
+            .map((node) => node.id),
+        ),
+      });
+    },
+
     beginEdit: () => {
       const { flat, draft, collapsed, editing } = get();
       if (editing) return;
@@ -324,6 +337,7 @@ export const useMiniStore = create<MiniState>((set, get) => {
         return;
       }
 
+      const struckIds = [...draft];
       const minutes = strikeMinutes(
         state.flat.filter((node) => draft.has(node.id)),
       );
@@ -334,6 +348,7 @@ export const useMiniStore = create<MiniState>((set, get) => {
         const trees = await loadTrees(today);
         set({ trees });
         await loadTreeData(activeTreeId, trees, false);
+        set({ strikePulse: { ids: struckIds, epoch: Date.now() } });
         const nextStreak = get().streak;
         if (nextStreak > previousStreak) {
           set({ streakPulse: true });

@@ -1,6 +1,6 @@
 import Database from "@tauri-apps/plugin-sql";
 import type { NodeRow, Settings, TreeRow } from "./types";
-import type { ParsedRoadmap } from "./roadmap";
+import type { ParsedRoadmap, RoadmapResource } from "./roadmap";
 import { treeSourceKey } from "./settings";
 
 export const DB_URL = "sqlite:striker-mini.db";
@@ -199,6 +199,18 @@ interface InsertNode {
   description: string;
   order: number;
   estimated_hours: number;
+  tags: string[];
+  resources: RoadmapResource[];
+}
+
+function parseJsonArray<T>(value: unknown): T[] {
+  if (typeof value !== "string") return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? (parsed as T[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 async function insertNodes(
@@ -211,13 +223,15 @@ async function insertNodes(
     await db.execute(
       `INSERT INTO tree_nodes
          (id, tree_id, parent_id, title, description, order_index,
-          estimated_hours, created_at, updated_at)
-       VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)
+          estimated_hours, tags, resources_json, created_at, updated_at)
+       VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          title = excluded.title,
          description = excluded.description,
          order_index = excluded.order_index,
          estimated_hours = excluded.estimated_hours,
+         tags = excluded.tags,
+         resources_json = excluded.resources_json,
          updated_at = excluded.updated_at`,
       [
         node.id,
@@ -226,6 +240,8 @@ async function insertNodes(
         node.description,
         node.order,
         node.estimated_hours,
+        JSON.stringify(node.tags),
+        JSON.stringify(node.resources),
         now,
         now,
       ],
@@ -265,6 +281,8 @@ export async function importRoadmap(
     description: node.description,
     order: node.order,
     estimated_hours: node.estimated_hours,
+    tags: node.tags,
+    resources: node.resources,
   }));
 
   await withTransaction(async (db) => {
@@ -316,9 +334,12 @@ export async function exportNodes(treeId: string): Promise<InsertNode[]> {
       description: string;
       order_index: number;
       estimated_hours: number;
+      tags: string | null;
+      resources_json: string | null;
     }>
   >(
-    `SELECT id, parent_id, title, description, order_index, estimated_hours
+    `SELECT id, parent_id, title, description, order_index, estimated_hours,
+            tags, resources_json
      FROM tree_nodes WHERE tree_id = ?
      ORDER BY order_index ASC, title ASC`,
     [treeId],
@@ -330,6 +351,15 @@ export async function exportNodes(treeId: string): Promise<InsertNode[]> {
     description: row.description ?? "",
     order: Number(row.order_index ?? 0),
     estimated_hours: Number(row.estimated_hours ?? 0),
+    tags: parseJsonArray<string>(row.tags).filter(
+      (tag): tag is string => typeof tag === "string",
+    ),
+    resources: parseJsonArray<RoadmapResource>(row.resources_json).filter(
+      (resource): resource is RoadmapResource =>
+        Boolean(resource) &&
+        typeof resource === "object" &&
+        !Array.isArray(resource),
+    ),
   }));
 }
 

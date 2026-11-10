@@ -1,0 +1,2 @@
+ALTER TABLE tree_nodes ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE tree_nodes ADD COLUMN resources_json TEXT NOT NULL DEFAULT '[]';

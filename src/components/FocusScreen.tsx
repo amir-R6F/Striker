@@ -1,17 +1,15 @@
 import { useState } from "react";
 import { useMiniStore } from "../store/useMiniStore";
 import { formatLongDay } from "../lib/dates";
-import { showCounts as showCountsSetting } from "../lib/settings";
-import type { NodeView } from "../lib/types";
 import {
   BoltIcon,
-  CheckIcon,
-  ChevronRightIcon,
+  CollapseAllIcon,
   EllipsisIcon,
   FlameIcon,
 } from "./icons";
 import { CreateTreeDialog } from "./CreateTreeDialog";
 import { ImportSheet } from "./ImportSheet";
+import { TreeCanvas } from "./TreeCanvas";
 import { Button, IconButton, Select, cx } from "./ui";
 
 export function FocusScreen() {
@@ -19,6 +17,9 @@ export function FocusScreen() {
   const activeTree = useMiniStore((state) => state.activeTree);
   const activeTreeId = useMiniStore((state) => state.activeTreeId);
   const roots = useMiniStore((state) => state.roots);
+  const flat = useMiniStore((state) => state.flat);
+  const collapsed = useMiniStore((state) => state.collapsed);
+  const collapseAll = useMiniStore((state) => state.collapseAll);
   const today = useMiniStore((state) => state.today);
   const streak = useMiniStore((state) => state.streak);
   const pulse = useMiniStore((state) => state.streakPulse);
@@ -31,6 +32,10 @@ export function FocusScreen() {
   const [importing, setImporting] = useState(false);
 
   const hasToday = strikeDates.includes(today);
+  const maxDepth = flat.reduce((depth, node) => Math.max(depth, node.depth), 0);
+  const hasExpanded = flat.some(
+    (node) => node.children.length > 0 && !collapsed.has(node.id),
+  );
   const label = editing
     ? "Update strike"
     : hasToday
@@ -59,13 +64,23 @@ export function FocusScreen() {
           </span>
         </div>
 
+        {maxDepth >= 3 && hasExpanded ? (
+          <IconButton
+            label="Collapse all"
+            onClick={collapseAll}
+            className="h-7 w-7 shrink-0"
+          >
+            <CollapseAllIcon className="h-3.5 w-3.5" />
+          </IconButton>
+        ) : null}
+
         <div className="min-w-0 flex-1">
           {trees.length > 0 ? (
             <Select
               value={activeTreeId ?? ""}
               onChange={(event) => void selectTree(event.target.value)}
               aria-label="Selected tree"
-              className="h-7 border-0 bg-transparent px-1 text-[12px] font-medium hover:bg-card2/60"
+              className="h-7 border-0 bg-transparent !py-0 px-1 text-[12px] font-medium leading-7 hover:bg-card2/60"
             >
               {trees.map((tree) => (
                 <option key={tree.id} value={tree.id}>
@@ -93,7 +108,14 @@ export function FocusScreen() {
         <span className="text-[10.5px] text-muted">{formatLongDay(today)}</span>
       </div>
 
-      <main className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+      <main
+        className={cx(
+          "min-h-0 flex-1",
+          activeTree && roots.length > 0
+            ? "overflow-hidden"
+            : "overflow-y-auto px-2 pb-2",
+        )}
+      >
         {!activeTree ? (
           <EmptyTrees
             onCreate={() => setCreating(true)}
@@ -113,11 +135,7 @@ export function FocusScreen() {
             </Button>
           </div>
         ) : (
-          <div className="space-y-px">
-            {roots.map((node) => (
-              <TreeRowItem key={node.id} node={node} />
-            ))}
-          </div>
+          <TreeCanvas />
         )}
       </main>
 
@@ -167,100 +185,6 @@ function EmptyTrees({
           Create blank tree
         </Button>
       </div>
-    </div>
-  );
-}
-
-function TreeRowItem({ node }: { node: NodeView }) {
-  const collapsed = useMiniStore((state) => state.collapsed.has(node.id));
-  const checked = useMiniStore((state) => state.draft.has(node.id));
-  const showCounts = useMiniStore((state) =>
-    showCountsSetting(state.settings),
-  );
-  const toggleExpand = useMiniStore((state) => state.toggleExpand);
-  const toggleNode = useMiniStore((state) => state.toggleNode);
-
-  const hasChildren = node.children.length > 0;
-  const indent = 12 + node.depth * 16;
-  const percent = Math.max(0, Math.min(100, node.percent));
-
-  const meta = (
-    <>
-      {showCounts ? (
-        <span className="shrink-0 rounded-md bg-card2/80 px-1.5 py-0.5 text-[9.5px] tabular-nums text-muted">
-          {node.strike_count}×
-        </span>
-      ) : null}
-      <span className="h-1 w-[54px] shrink-0 overflow-hidden rounded-full bg-card2">
-        <span
-          className="block h-full rounded-full bg-accent transition-[width] duration-300"
-          style={{ width: `${percent}%` }}
-        />
-      </span>
-      <span className="w-8 shrink-0 text-right text-[9.5px] tabular-nums text-muted">
-        {node.percent}%
-      </span>
-    </>
-  );
-
-  if (hasChildren) {
-    return (
-      <div>
-        <button
-          type="button"
-          onClick={() => toggleExpand(node.id)}
-          aria-expanded={!collapsed}
-          className="flex h-9 w-full items-center gap-1.5 rounded-md pr-2 text-left transition hover:bg-card2/55"
-          style={{ paddingLeft: `${indent}px` }}
-        >
-          <ChevronRightIcon
-            className={cx(
-              "h-3 w-3 shrink-0 text-muted transition-transform",
-              !collapsed && "rotate-90",
-            )}
-          />
-          <span className="min-w-0 flex-1 truncate text-[12px] font-medium">
-            {node.title}
-          </span>
-          {meta}
-        </button>
-        {!collapsed
-          ? node.children.map((child) => (
-              <TreeRowItem key={child.id} node={child} />
-            ))
-          : null}
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className="flex h-9 items-center gap-1.5 rounded-md pr-2 transition hover:bg-card2/55"
-      style={{ paddingLeft: `${indent}px` }}
-    >
-      <button
-        type="button"
-        role="checkbox"
-        aria-checked={checked}
-        aria-label={`${checked ? "Uncheck" : "Check"} ${node.title}`}
-        onClick={() => toggleNode(node.id)}
-        className={cx(
-          "grid h-[15px] w-[15px] shrink-0 place-items-center rounded-[4px] border transition",
-          checked
-            ? "border-accent bg-accent text-on-accent"
-            : "border-line bg-card2/30 text-transparent hover:border-muted",
-        )}
-      >
-        <CheckIcon className="h-2.5 w-2.5" />
-      </button>
-      <button
-        type="button"
-        onClick={() => toggleNode(node.id)}
-        className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-      >
-        <span className="min-w-0 flex-1 truncate text-[12px]">{node.title}</span>
-        {meta}
-      </button>
     </div>
   );
 }

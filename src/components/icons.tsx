@@ -61,6 +61,14 @@ export function CheckIcon(props: IconProps) {
   );
 }
 
+export function CollapseAllIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M8 4 4 8l4 4M4 8h7M16 20l4-4-4-4M20 16h-7" />
+    </Icon>
+  );
+}
+
 export function CloseIcon(props: IconProps) {
   return (
     <Icon {...props}>

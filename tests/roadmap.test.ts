@@ -50,7 +50,7 @@ function errorsFor(value: unknown): string[] {
 }
 
 describe("parseRoadmap", () => {
-  it("parses and trims a valid nested roadmap", () => {
+  it("parses a valid nested roadmap and preserves tags/resources", () => {
     const parsed = parseRoadmap(
       JSON.stringify(
         roadmap([
@@ -64,7 +64,13 @@ describe("parseRoadmap", () => {
             parent_id: "modeling",
             estimated_hours: 2,
             tags: [" mesh ", ""],
-            resources: [{ title: "Guide", url: " https://example.com " }],
+            resources: [
+              {
+                type: "article",
+                label: " Guide ",
+                url: " https://example.com ",
+              },
+            ],
           }),
         ]),
       ),
@@ -77,8 +83,14 @@ describe("parseRoadmap", () => {
     expect(parsed.nodes[1]).toMatchObject({
       id: "bevel",
       parent_id: "modeling",
-      tags: ["mesh"],
-      resources: [{ title: "Guide", url: "https://example.com" }],
+      tags: [" mesh ", ""],
+      resources: [
+        {
+          type: "article",
+          label: " Guide ",
+          url: " https://example.com ",
+        },
+      ],
     });
   });
 
@@ -107,6 +119,60 @@ describe("parseRoadmap", () => {
       ]),
     );
     expect(errors).toHaveLength(3);
+  });
+
+  it("rejects non-array tags and malformed resources", () => {
+    const invalidTags = errorsFor(
+      roadmap([node("bad", { tags: "mesh" as unknown as string[] })]),
+    );
+    expect(invalidTags).toContain(
+      'Node 1 (bad) has invalid tags; expected an array of strings.',
+    );
+
+    const nonStringTag = errorsFor(
+      roadmap([node("bad", { tags: ["ok", 3] as unknown as string[] })]),
+    );
+    expect(nonStringTag).toContain(
+      "Node 1 (bad) has invalid tags; every tag must be a string.",
+    );
+
+    const nonArrayResources = errorsFor(
+      roadmap([
+        node("bad", {
+          resources: "https://example.com" as unknown as RoadmapJson["nodes"][number]["resources"],
+        }),
+      ]),
+    );
+    expect(nonArrayResources).toContain(
+      "Node 1 (bad) has invalid resources; expected an array of objects.",
+    );
+
+    const missingType = errorsFor(
+      roadmap([
+        node("bad", {
+          resources: [{ url: "https://example.com" }],
+        }),
+      ]),
+    );
+    expect(missingType).toContain(
+      'Node 1 (bad) resource 1 must have a string "type".',
+    );
+
+    const invalidUrl = errorsFor(
+      roadmap([
+        node("bad", {
+          resources: [
+            {
+              type: "article",
+              url: 42,
+            } as unknown as RoadmapJson["nodes"][number]["resources"][number],
+          ],
+        }),
+      ]),
+    );
+    expect(invalidUrl).toContain(
+      'Node 1 (bad) resource 1 has an invalid "url"; expected a string.',
+    );
   });
 
   it("rejects duplicate ids", () => {
@@ -174,6 +240,41 @@ describe("parseRoadmap", () => {
     expect(ghostChild).toContain(
       'Node "modeling" lists missing child "ghost".',
     );
+  });
+
+  it("round-trips tags and resources losslessly through build and parse", () => {
+    const tags = ["blender", "lighting", "", " spaced "];
+    const resources = [
+      {
+        type: "video",
+        label: "Lighting guide",
+        url: "https://example.com/lighting",
+      },
+      { type: "note", label: "Watch twice" },
+    ];
+    const source = parseRoadmap(
+      JSON.stringify(
+        roadmap([
+          node("lighting", {
+            tags,
+            resources,
+            children: [],
+          }),
+        ]),
+      ),
+    );
+
+    const built = buildRoadmap({
+      title: source.title,
+      description: source.description,
+      source: source.source,
+      createdAt: source.createdAt,
+      nodes: source.nodes,
+    });
+    const reparsed = parseRoadmap(JSON.stringify(built));
+
+    expect(reparsed.nodes[0].tags).toEqual(tags);
+    expect(reparsed.nodes[0].resources).toEqual(resources);
   });
 
   it("round-trips a built roadmap through validation", () => {

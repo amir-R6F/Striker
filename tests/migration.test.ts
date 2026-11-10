@@ -7,6 +7,10 @@ const migrationSql = readFileSync(
   new URL("../src-tauri/migrations/001_init.sql", import.meta.url),
   "utf8",
 );
+const nodeMetaSql = readFileSync(
+  new URL("../src-tauri/migrations/002_node_meta.sql", import.meta.url),
+  "utf8",
+);
 
 function rows(db: Database, sql: string): Array<Record<string, unknown>> {
   const statement = db.prepare(sql);
@@ -23,19 +27,25 @@ function tableColumns(db: Database, table: string): string[] {
   return rows(db, `PRAGMA table_info(${table})`).map((row) => String(row.name));
 }
 
-describe("001_init migration", () => {
+describe("Mini migrations", () => {
   let db: Database;
 
   beforeEach(async () => {
     const SQL = await initSqlJs();
     db = new SQL.Database();
-    db.run(migrationSql);
+    for (const migration of GENERATED_MIGRATIONS) db.run(migration.sql);
   });
 
   it("matches the committed browser snapshot", () => {
-    expect(GENERATED_MIGRATIONS).toHaveLength(1);
-    expect(GENERATED_MIGRATIONS[0].name).toBe("001_init");
-    expect(GENERATED_MIGRATIONS[0].sql).toBe(migrationSql.trim());
+    expect(GENERATED_MIGRATIONS).toHaveLength(2);
+    expect(GENERATED_MIGRATIONS[0]).toEqual({
+      name: "001_init",
+      sql: migrationSql.trim(),
+    });
+    expect(GENERATED_MIGRATIONS[1]).toEqual({
+      name: "002_node_meta",
+      sql: nodeMetaSql.trim(),
+    });
   });
 
   it("creates only the five Mini tables", () => {
@@ -89,6 +99,8 @@ describe("001_init migration", () => {
       "estimated_hours",
       "created_at",
       "updated_at",
+      "tags",
+      "resources_json",
     ]);
     expect(tableColumns(db, "strikes")).toEqual([
       "id",

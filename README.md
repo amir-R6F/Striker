@@ -27,10 +27,11 @@ the reverse. Both use the same JSON schema, so no conversion is needed.
 
 - **Streak** — consecutive days with at least one strike for the selected tree.
 - **Tree switcher** — shows every tree and a ✓ on trees already struck today.
-- **Nested tree** — branches expand/collapse; leaves are checkable. Branches with
-  a node struck in the last two days start expanded.
-- **Per-node progress** — every strike on a node fills 25% of its bar (four
-  strikes fill it). Parent rows show the recursive average of their children.
+- **SVG tree** — hand-drawn cards with progress rings and curved edges;
+  branches expand/collapse and leaves are checkable. Branches with a node struck
+  in the last two days start expanded; wide trees scroll horizontally.
+- **Per-node progress** — every strike on a node fills 25% of its ring (four
+  strikes fill it). Parent nodes show the recursive average of their children.
 - **Strike** — saves one strike for today with the checked nodes. Minutes are the
   sum of the checked nodes' estimated hours, with a 15-minute fallback.
 - **Edit strike** — the button becomes "Struck today — edit"; it pre-checks
@@ -67,9 +68,11 @@ Mini reads and writes the same **schema v1** JSON as Full Striker:
       "description": "",
       "parent_id": null,
       "order": 1,
-      "tags": [],
+      "tags": ["basics"],
       "estimated_hours": 10,
-      "resources": [],
+      "resources": [
+        { "type": "article", "label": "Reference", "url": "https://example.com" }
+      ],
       "children": ["bevel"]
     },
     {
@@ -99,9 +102,9 @@ the document (schema version, unique IDs, valid parents, no cycles, consistent
 The **Copy AI prompt** button copies a ready-made prompt containing the schema and
 an example, so any AI can generate a compatible tree.
 
-Known schema deviation: Mini's minimal schema has no columns for `tags` or
-`resources`, so exports contain `"tags": []` and `"resources": []`. Titles,
-descriptions, hierarchy, order, and estimated hours round-trip exactly.
+Tags and resources are stored as JSON on each node and round-trip exactly.
+Resources use `{ type, label?, url? }`; legacy Full Striker resources that use
+`{ title, url }` are still accepted so older files import unchanged.
 
 ## Development
 
@@ -153,7 +156,8 @@ offers Quit.
 
 ## Schema
 
-Mini has exactly one migration, `src-tauri/migrations/001_init.sql`:
+Mini has two migrations: `src-tauri/migrations/001_init.sql` and
+`002_node_meta.sql` (adds `tags` and `resources_json`):
 
 - `trees` — one row per tree.
 - `tree_nodes` — nested nodes (`parent_id` self-reference, ordered by
@@ -170,11 +174,12 @@ Tree source metadata has no dedicated column, so it is kept in `settings` under
 ```
 src/
   App.tsx                 onboarding / focus routing
-  components/             FocusScreen, TreeRow, ImportSheet, SettingsSheet, ...
+  components/             FocusScreen, TreeCanvas, ImportSheet, SettingsSheet, ...
   hooks/                  theme, idle auto-hide, window bridge
   lib/
     db.ts                 SQLite queries and transactions
     progress.ts           tree progress, streaks, strike minutes
+    treeLayout.ts         pure visible-node SVG layout
     roadmap.ts            schema v1 parse/validate/build + AI prompt
     export.ts             JSON export and downloads
     autostart.ts          Windows auto-start bridge

@@ -2,9 +2,17 @@ export const ROADMAP_SCHEMA_VERSION = 1 as const;
 
 export type RoadmapSource = "manual" | "ai" | "imported";
 
+/**
+ * Resources are stored exactly as supplied so import/export round-trips are
+ * lossless. New roadmaps use `{ type, label?, url? }`; Legacy Full Striker
+ * files that use `{ title, url }` remain importable.
+ */
 export interface RoadmapResource {
-  title: string;
-  url: string;
+  type?: string;
+  label?: string;
+  title?: string;
+  url?: string;
+  [key: string]: unknown;
 }
 
 export interface RoadmapNodeJson {
@@ -59,6 +67,8 @@ export interface BuildRoadmapInput {
     parent_id: string | null;
     order: number;
     estimated_hours: number;
+    tags?: string[];
+    resources?: RoadmapResource[];
   }>;
 }
 
@@ -86,20 +96,64 @@ function stringArray(value: unknown): string[] {
     .filter(Boolean);
 }
 
-function normalizeResource(value: unknown): RoadmapResource | null {
-  if (typeof value === "string") {
-    const url = value.trim();
-    return url ? { title: url, url } : null;
+function validateTags(
+  value: unknown,
+  label: string,
+  errors: string[],
+): string[] {
+  if (value == null) return [];
+  if (!Array.isArray(value)) {
+    errors.push(`${label} has invalid tags; expected an array of strings.`);
+    return [];
   }
-  if (!value || typeof value !== "object") return null;
-  const record = value as Record<string, unknown>;
-  const url = typeof record.url === "string" ? record.url.trim() : "";
-  if (!url) return null;
-  const title =
-    typeof record.title === "string" && record.title.trim()
-      ? record.title.trim()
-      : url;
-  return { title, url };
+  if (value.some((tag) => typeof tag !== "string")) {
+    errors.push(`${label} has invalid tags; every tag must be a string.`);
+  }
+  return value.filter((tag): tag is string => typeof tag === "string");
+}
+
+function validateResources(
+  value: unknown,
+  label: string,
+  errors: string[],
+): RoadmapResource[] {
+  if (value == null) return [];
+  if (!Array.isArray(value)) {
+    errors.push(
+      `${label} has invalid resources; expected an array of objects.`,
+    );
+    return [];
+  }
+
+  const resources: RoadmapResource[] = [];
+  value.forEach((item, index) => {
+    const itemLabel = `${label} resource ${index + 1}`;
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      errors.push(`${itemLabel} must be an object.`);
+      return;
+    }
+    const record = item as Record<string, unknown>;
+    const type =
+      typeof record.type === "string" ? record.type.trim() : "";
+    const legacyTitle =
+      typeof record.title === "string" ? record.title.trim() : "";
+    if (!type && !legacyTitle) {
+      errors.push(`${itemLabel} must have a string "type".`);
+      return;
+    }
+    if (record.url != null && typeof record.url !== "string") {
+      errors.push(`${itemLabel} has an invalid "url"; expected a string.`);
+      return;
+    }
+    if (record.label != null && typeof record.label !== "string") {
+      errors.push(`${itemLabel} has an invalid "label"; expected a string.`);
+      return;
+    }
+    // Preserve the object as-is, including optional fields, so exports are
+    // lossless. Validation above only checks the required shape.
+    resources.push(record as RoadmapResource);
+  });
+  return resources;
 }
 
 /**
@@ -198,14 +252,12 @@ export function parseRoadmap(input: string): ParsedRoadmap {
         ? Math.max(0, node.estimated_hours)
         : 0;
 
-    const resources = Array.isArray(node.resources)
-      ? node.resources
-          .map(normalizeResource)
-          .filter((resource): resource is RoadmapResource => Boolean(resource))
-      : [];
-    if (node.resources != null && !Array.isArray(node.resources)) {
-      errors.push(`${label} (${id}) has an invalid resources list.`);
-    }
+    const resources = validateResources(
+      node.resources,
+      `${label} (${id})`,
+      errors,
+    );
+    const tags = validateTags(node.tags, `${label} (${id})`, errors);
 
     const childValues = stringArray(node.children);
     if (node.children != null && !Array.isArray(node.children)) {
@@ -220,7 +272,7 @@ export function parseRoadmap(input: string): ParsedRoadmap {
         typeof node.description === "string" ? node.description.trim() : "",
       parent_id: parentId,
       order: orderValue,
-      tags: stringArray(node.tags),
+      tags,
       estimated_hours: estimated,
       resources,
     });
@@ -320,11 +372,9 @@ export function buildRoadmap(input: BuildRoadmapInput): RoadmapJson {
       description: node.description,
       parent_id: node.parent_id,
       order: node.order,
-      // Mini's compact schema does not store tags/resources; export valid
-      // empty lists so Full can import the file unchanged.
-      tags: [],
+      tags: node.tags ?? [],
       estimated_hours: node.estimated_hours,
-      resources: [],
+      resources: node.resources ?? [],
       children: childrenById.get(node.id) ?? [],
     })),
   };
@@ -359,7 +409,7 @@ Schema:
       "order": 1,
       "tags": ["tag"],
       "estimated_hours": 4,
-      "resources": [{ "title": "Resource", "url": "https://example.com" }],
+      "resources": [{ "type": "article", "label": "Resource", "url": "https://example.com" }],
       "children": []
     }
   ]
@@ -401,7 +451,7 @@ Example:
       "order": 1,
       "tags": ["sculpting"],
       "estimated_hours": 8,
-      "resources": [{ "title": "Reference", "url": "https://example.com" }],
+      "resources": [{ "type": "article", "label": "Reference", "url": "https://example.com" }],
       "children": []
     }
   ]
