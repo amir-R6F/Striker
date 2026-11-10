@@ -9,6 +9,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "check": "tsc --noEmit && vite build",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
@@ -24,6 +26,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.4",
+    "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/sql.js": "^1.4.11",
@@ -33,7 +36,8 @@
     "sql.js": "^1.15.2",
     "tailwindcss": "^3.4.17",
     "typescript": "~5.9.3",
-    "vite": "^8.3.6"
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
   },
   "engines": {
     "node": ">=20.19.0"

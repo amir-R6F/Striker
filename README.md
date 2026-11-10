@@ -110,6 +110,7 @@ Requirements: Node.js 20.19+ and npm.
 ```bash
 npm install
 npm run dev        # browser mode with sql.js, no Rust required
+npm test           # focused Vitest suite (migration, roadmap, progress)
 npm run check      # tsc --noEmit + production web build
 npm run tauri:dev  # real desktop app (requires the Rust toolchain)
 ```
@@ -173,6 +174,7 @@ src/
   hooks/                  theme, idle auto-hide, window bridge
   lib/
     db.ts                 SQLite queries and transactions
+    progress.ts           tree progress, streaks, strike minutes
     roadmap.ts            schema v1 parse/validate/build + AI prompt
     export.ts             JSON export and downloads
     autostart.ts          Windows auto-start bridge
@@ -182,6 +184,7 @@ src-tauri/
   migrations/001_init.sql
   src/lib.rs              Tauri setup, tray, commands, migrations
 scripts/extract-migrations.mjs
+tests/                    migration, roadmap validation, progress tests
 ```
 
 ## License
